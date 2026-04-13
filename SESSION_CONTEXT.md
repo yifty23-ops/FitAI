@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after security/bug sweep on 2026-04-13.
+> Updated after plan generation bug fix on 2026-04-13.
 
 ---
 
@@ -46,6 +46,12 @@ First run (2026-04-13) produced PR #1 with 3 changes:
 - `tiers.py` SPORT_DEMANDS["mma"]: Updated weight-cut to specify gradual descent over acute dehydration (ISSN 2025 position stand)
 
 Manage at: https://claude.ai/code/scheduled/trig_01RKBrXDpLf1eu6C4nEiwibd
+
+**Plan generation bug fix (2026-04-13):**
+Fixed 3 bugs causing "Plan generation failed" on every attempt:
+1. Frontend timeout too short: `plan/loading/page.tsx` used default 30s timeout instead of `LONG_TIMEOUT_MS` (120s). Plan generation takes 30-110s (research + Claude plan call). Now passes `timeoutMs: LONG_TIMEOUT_MS`.
+2. "Try Again" button broken: Button reset `started.current = false` but the `useEffect` depended on `[router]` (stable ref), so generation never re-triggered. Fixed with `attempt` state counter as useEffect dependency.
+3. Unprotected collective query: `_attach_collective()` in `backend/tools/research.py` called `query_collective()` without try-catch. If collective query failed (e.g., JSONB access on empty table), entire research pipeline crashed. Now wrapped in try-catch with warning log.
 
 ---
 
@@ -257,7 +263,7 @@ fitai/
 │   │   └── chat.py                    # POST (rate-limited, sanitized), GET (tier-gated)
 │   ├── tools/
 │   │   ├── __init__.py                # Empty
-│   │   ├── research.py                # sanitize_for_prompt(), compute_profile_hash, profile_to_research_dict (sanitized), research_for_profile
+│   │   ├── research.py                # sanitize_for_prompt(), compute_profile_hash, profile_to_research_dict (sanitized), research_for_profile, _attach_collective (try-catch protected)
 │   │   ├── plan_generator.py          # generate_plan_for_profile (structure validation, concurrent lock)
 │   │   ├── adapt.py                   # adapt_plan (uses plan.tier_at_creation), get_adaptation_history (limited to 5)
 │   │   ├── collective.py              # donate_result + query_collective (sport-aware 3-tier query)
@@ -291,7 +297,7 @@ fitai/
 │       │   ├── session/[planId]/[week]/[day]/page.tsx  # Session logging
 │       │   ├── checkin/[planId]/[week]/page.tsx         # Weekly check-in
 │       │   └── plan/
-│       │       ├── loading/page.tsx   # Plan generation: animated progress
+│       │       ├── loading/page.tsx   # Plan generation: animated progress, 120s timeout, retry with attempt counter
 │       │       └── [id]/page.tsx      # Plan detail: preview/activate, export
 │       ├── components/
 │       │   ├── OnboardingChat.tsx     # 7-step wizard with sessionStorage persistence
@@ -393,7 +399,7 @@ These are known gaps documented in the improvement plan but not yet implemented:
 5. **Active workout mode**: Full-screen one-exercise-at-a-time view with giant tap targets.
 6. **Personal records board**: Automatic PR detection and celebration.
 7. **Progressive overload tracker**: Automated weekly volume comparison on dashboard.
-8. **Async plan generation**: Plan generation is still synchronous (blocks 30-90s). Could be moved to background task with polling.
+8. **Async plan generation**: Plan generation is still synchronous (blocks 30-90s). Frontend now uses 120s timeout which is sufficient, but could be moved to background task with polling for better UX.
 9. **Account lockout**: No lockout after failed login attempts (only rate-limited 5/min).
 10. **Frontend AbortController cleanup on unmount**: Timeouts added to `api.ts` but individual page useEffect hooks don't yet pass AbortController signals for cleanup on navigation.
 11. **ANTHROPIC_API_KEY**: Still a placeholder in `.env`. AI features (research, plan generation, adaptation, chat) will fail until a real key is provided.

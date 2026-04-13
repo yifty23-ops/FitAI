@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/auth";
-import { api } from "@/lib/api";
+import { api, LONG_TIMEOUT_MS } from "@/lib/api";
 import type { Tier } from "@/lib/tiers";
 
 interface GenerateResponse {
@@ -61,6 +61,7 @@ export default function PlanLoadingPage() {
   const [messageIdx, setMessageIdx] = useState(0);
   const [messages, setMessages] = useState<string[]>(MESSAGES.free);
   const [tier, setTier] = useState<Tier>("free");
+  const [attempt, setAttempt] = useState(0);
   const started = useRef(false);
 
   // Cycle through messages
@@ -74,7 +75,7 @@ export default function PlanLoadingPage() {
 
   // Auth gate + trigger generation
   useEffect(() => {
-    if (started.current) return;
+    if (attempt === 0 && started.current) return;
     started.current = true;
 
     const user = getUser();
@@ -104,6 +105,7 @@ export default function PlanLoadingPage() {
       try {
         const result = await api<GenerateResponse>("/plan/generate", {
           method: "POST",
+          timeoutMs: LONG_TIMEOUT_MS,
         });
         setStatus("success");
         router.push(`/plan/${result.plan_id}`);
@@ -116,7 +118,8 @@ export default function PlanLoadingPage() {
     }
 
     generate();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, attempt]);
 
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
@@ -192,7 +195,7 @@ export default function PlanLoadingPage() {
                     setStatus("generating");
                     setError("");
                     setMessageIdx(0);
-                    started.current = false;
+                    setAttempt((a) => a + 1);
                   }}
                   className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium text-white transition-colors"
                 >

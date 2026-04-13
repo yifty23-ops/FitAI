@@ -74,12 +74,15 @@ def profile_to_research_dict(profile: Profile, user: User) -> dict:
 
 def _attach_collective(result: dict, profile_hash: str, profile: Profile, user: User, db: Session) -> dict:
     """Append collective insights to research result if available (not cached — always fresh)."""
-    from tools.collective import query_collective
+    try:
+        from tools.collective import query_collective
 
-    collective = query_collective(profile_hash, profile, user, db)
-    if collective and not collective.startswith("Collective data not available") and not collective.startswith("No collective data"):
-        result["collective_insights"] = collective
-        logger.info("Collective data injected for user %s", user.id)
+        collective = query_collective(profile_hash, profile, user, db)
+        if collective and not collective.startswith("Collective data not available") and not collective.startswith("No collective data"):
+            result["collective_insights"] = collective
+            logger.info("Collective data injected for user %s", user.id)
+    except Exception as e:
+        logger.warning("Collective data query failed, continuing without: %s", e)
     return result
 
 
