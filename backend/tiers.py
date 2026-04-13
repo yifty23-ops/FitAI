@@ -80,6 +80,10 @@ SPORT_DEMANDS = {
 
 
 def build_elite_persona(sport: str) -> str:
+    # Validate sport against known keys; for freetext "Other", sanitize
+    import re as _re
+    if sport not in SPORT_DEMANDS:
+        sport = _re.sub(r"[^a-zA-Z0-9 \-]", "", sport)[:30] or "general"
     demands = SPORT_DEMANDS.get(sport, SPORT_DEMANDS["general"])
     return (
         f"You are an elite {sport} strength and conditioning coach who has "

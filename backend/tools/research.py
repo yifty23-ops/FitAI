@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,23 @@ from models.user import User
 from services.claude_client import ClaudeClient
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
+    """Sanitize user-supplied text before interpolating into AI prompts.
+
+    Strips characters that could be used for prompt injection and wraps
+    the result in delimiters so the model can distinguish data from instructions.
+    """
+    if not text:
+        return ""
+    # Truncate to max length
+    text = text[:max_length]
+    # Remove control characters and null bytes
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+    # Strip common prompt-injection delimiters/patterns
+    text = text.replace("{", "").replace("}", "")
+    return text
 
 
 def compute_profile_hash(profile: Profile, tier: str) -> str:
@@ -32,20 +50,24 @@ def compute_profile_hash(profile: Profile, tier: str) -> str:
 
 
 def profile_to_research_dict(profile: Profile, user: User) -> dict:
-    """Convert SQLAlchemy Profile + User to dict for prompt formatting."""
-    equipment_str = ", ".join(profile.equipment or ["bodyweight"])
+    """Convert SQLAlchemy Profile + User to dict for prompt formatting.
+
+    All free-text user fields are sanitized to prevent prompt injection.
+    """
+    equipment_list = profile.equipment or ["bodyweight"]
+    equipment_str = ", ".join(sanitize_for_prompt(e, max_length=50) for e in equipment_list)
     return {
-        "goal": profile.goal,
-        "sex": profile.sex,
+        "goal": sanitize_for_prompt(profile.goal, max_length=50),
+        "sex": sanitize_for_prompt(profile.sex, max_length=10),
         "age": profile.age or "unknown",
         "weight_kg": profile.weight_kg or "unknown",
         "height_cm": profile.height_cm or "unknown",
-        "experience": profile.experience,
-        "experience_detail": f"{profile.experience} level trainee",
+        "experience": sanitize_for_prompt(profile.experience, max_length=20),
+        "experience_detail": f"{sanitize_for_prompt(profile.experience, max_length=20)} level trainee",
         "days_per_week": profile.days_per_week or 3,
         "session_minutes": profile.session_minutes or 60,
         "equipment": equipment_str,
-        "injuries": profile.injuries or "none reported",
+        "injuries": sanitize_for_prompt(profile.injuries or "none reported", max_length=500),
         "competition_date": str(user.competition_date) if user.competition_date else "none",
     }
 

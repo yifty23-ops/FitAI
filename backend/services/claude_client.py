@@ -489,7 +489,8 @@ class ClaudeClient:
             logger.warning("JSON parse failed, retrying: %s", e)
             return self._retry_json_extraction(text)
 
-    def _retry_json_extraction(self, original_text: str) -> dict:
+    def _retry_json_extraction(self, original_text: str, _retried: bool = False) -> dict:
+        """Retry JSON extraction once. Raises ValueError if retry also fails."""
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,

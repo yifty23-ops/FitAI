@@ -224,9 +224,9 @@ def adapt_plan(plan: Plan, user: User, db: Session) -> dict:
     # Get adaptation history
     history = get_adaptation_history(plan.id, db)
 
-    # Call Claude for adaptation
+    # Call Claude for adaptation — use tier at plan creation for consistency
     client = ClaudeClient(settings.anthropic_api_key)
-    tier = user.tier
+    tier = plan.tier_at_creation or user.tier
     sport = user.sport
     competition_date = str(user.competition_date) if user.competition_date else None
 

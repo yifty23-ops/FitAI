@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from database import get_db
 from models.collective import CollectiveResult
@@ -16,17 +18,20 @@ from routes.auth import get_current_user
 from tiers import check_feature
 
 collective_router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 class DonateBody(BaseModel):
-    success_score: int  # 1-5
-    notes: Optional[str] = None
+    success_score: int = Field(ge=1, le=5)
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 @collective_router.post("/{plan_id}/donate")
+@limiter.limit("3/minute")
 def donate(
     plan_id: str,
     body: DonateBody,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -40,9 +45,6 @@ def donate(
         raise HTTPException(status_code=400, detail="Can only donate from an active plan")
     if not plan.milestone_pending:
         raise HTTPException(status_code=400, detail="No milestone pending")
-
-    if body.success_score < 1 or body.success_score > 5:
-        raise HTTPException(status_code=400, detail="success_score must be between 1 and 5")
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     if not profile:

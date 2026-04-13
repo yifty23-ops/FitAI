@@ -12,6 +12,7 @@ from models.checkin import WeeklyCheckin
 from models.plan import Plan
 from models.session import SessionLog
 from models.user import User
+from tools.research import sanitize_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +232,7 @@ def _format_latest_checkin(plan_id, db: Session) -> str:
     if checkin.weight_kg is not None:
         parts.append("Weight: %.1fkg" % checkin.weight_kg)
     if checkin.notes:
-        parts.append("Notes: %s" % checkin.notes[:100])
+        parts.append("Notes: %s" % sanitize_for_prompt(checkin.notes, max_length=100))
     return ", ".join(parts)
 
 

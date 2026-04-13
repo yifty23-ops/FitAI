@@ -1,10 +1,12 @@
 import { getToken } from "./auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const DEFAULT_TIMEOUT_MS = 30_000;
+const LONG_TIMEOUT_MS = 120_000; // for plan generation
 
 export async function api<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeoutMs?: number } = {}
 ): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -16,15 +18,34 @@ export async function api<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  const { timeoutMs, ...fetchOptions } = options;
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(body.detail || `HTTP ${res.status}`);
+  // Create timeout abort if no signal was provided
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let signal = fetchOptions.signal;
+  if (!signal) {
+    const controller = new AbortController();
+    signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), timeout);
   }
 
-  return res.json();
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...fetchOptions,
+      headers,
+      signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: "Request failed" }));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+
+    return res.json();
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
+
+export { LONG_TIMEOUT_MS };

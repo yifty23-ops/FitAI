@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 
 import re
@@ -31,14 +29,18 @@ EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 class SignupRequest(BaseModel):
     email: str
     password: str = Field(min_length=8, max_length=128)
-    tier: str = "free"
 
     @field_validator("email")
     @classmethod
     def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
         if not EMAIL_RE.match(v):
             raise ValueError("Invalid email format")
-        return v.lower().strip()
+        # Reject consecutive dots in local part
+        local = v.split("@")[0]
+        if ".." in local:
+            raise ValueError("Invalid email format")
+        return v
 
 
 class LoginRequest(BaseModel):
@@ -102,16 +104,13 @@ def get_current_user(authorization: str = Header(...), db: Session = Depends(get
 
 @auth_router.post("/signup", response_model=AuthResponse)
 @limiter.limit("3/minute")
-def signup(request: Request, req: SignupRequest, db: Session = Depends(get_db)):
-    if req.tier not in TIER_FEATURES:
-        raise HTTPException(status_code=400, detail="Invalid tier")
-
+def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == req.email).first()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
     hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode("utf-8")
-    user = User(email=req.email, password_hash=hashed, tier=req.tier)
+    user = User(email=req.email, password_hash=hashed, tier="free")
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -138,8 +137,9 @@ def change_password(
 
 @auth_router.post("/login", response_model=AuthResponse)
 @limiter.limit("5/minute")
-def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
+def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    normalized_email = req.email.strip().lower()
+    user = db.query(User).filter(User.email == normalized_email).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

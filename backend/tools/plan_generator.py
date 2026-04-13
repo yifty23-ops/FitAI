@@ -70,11 +70,32 @@ def generate_plan_for_profile(user: User, profile: Profile, db: Session) -> dict
         competition_date=competition_date,
     )
 
-    # 4. Validate required keys
-    if "plan" not in result or "nutrition" not in result:
-        raise ValueError("Plan generation result missing required keys: plan, nutrition")
+    # 4. Validate required keys and plan structure
+    if "plan" not in result and "weeks" not in result:
+        raise ValueError("Plan generation result missing required keys: plan or weeks")
+    if "nutrition" not in result:
+        raise ValueError("Plan generation result missing required key: nutrition")
 
-    # 5. Clean up any existing draft plans (prevents orphan drafts)
+    # Normalize: ensure plan_data always has a "weeks" key
+    plan_section = result.get("plan", result)
+    if isinstance(plan_section, dict):
+        weeks = plan_section.get("weeks", [])
+    elif isinstance(plan_section, list):
+        weeks = plan_section
+    else:
+        weeks = []
+    if not weeks or not isinstance(weeks, list):
+        raise ValueError("Plan has no weeks data")
+    # Validate each week has days
+    for i, week in enumerate(weeks):
+        if not isinstance(week, dict):
+            raise ValueError(f"Week {i+1} is not a valid object")
+        days = week.get("days", [])
+        if not isinstance(days, list) or len(days) == 0:
+            raise ValueError(f"Week {i+1} has no training days")
+
+    # 5. Lock user row to prevent concurrent plan generation, then clean up drafts
+    db.query(User).filter(User.id == user.id).with_for_update().first()
     db.query(Plan).filter(
         Plan.user_id == user.id,
         Plan.is_active == False,

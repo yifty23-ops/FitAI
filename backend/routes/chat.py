@@ -17,6 +17,7 @@ from models.user import User
 from routes.auth import get_current_user
 from services.claude_client import ClaudeClient
 from tiers import check_feature
+from tools.research import sanitize_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,14 @@ def send_chat(
     context = build_coach_context(user, plan, db)
     history = get_conversation_history(plan.id, db, limit=10)
 
+    # Sanitize user message before passing to AI prompt
+    safe_message = sanitize_for_prompt(body.message, max_length=5000)
+
     # Call Claude
     client = ClaudeClient(settings.anthropic_api_key)
     result = client.chat(
         context=context,
-        message=body.message,
+        message=safe_message,
         conversation_history=history,
         sport=user.sport,
     )
@@ -86,7 +90,7 @@ def send_chat(
             apply_chat_modifications(plan, modifications, db)
             plan_modified = True
             logger.info("Chat modification applied for plan %s: %s", plan.id, modifications.get("type"))
-        except Exception:
+        except (ValueError, KeyError, TypeError, RuntimeError):
             logger.exception("Failed to apply chat modification for plan %s", plan.id)
             coach_message += "\n\n(Note: I tried to update your plan but encountered an issue. The change wasn't applied.)"
             modifications = None
@@ -124,6 +128,10 @@ def get_chat_history(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Elite-only gate for chat history
+    if not check_feature(user, "coach_chat"):
+        raise HTTPException(status_code=403, detail="Coach chat is an Elite-only feature.")
+
     # Verify plan ownership
     plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user.id).first()
     if not plan:

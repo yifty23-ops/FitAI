@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from database import get_db
 from models.plan import Plan
@@ -14,6 +17,7 @@ from models.user import User
 from routes.auth import get_current_user
 
 session_router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 # --- Request schemas ---
@@ -44,11 +48,13 @@ class SessionCreate(BaseModel):
 # --- Routes ---
 
 @session_router.post("/{plan_id}/{week}/{day}")
+@limiter.limit("10/minute")
 def log_session(
     plan_id: str,
     week: int,
     day: int,
     body: SessionCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -57,6 +63,12 @@ def log_session(
         raise HTTPException(status_code=404, detail="Plan not found")
     if not plan.is_active:
         raise HTTPException(status_code=400, detail="Cannot log sessions on an inactive plan")
+
+    # Validate week and day bounds
+    if week < 1 or week > plan.mesocycle_weeks:
+        raise HTTPException(status_code=400, detail=f"Week {week} is out of range (1-{plan.mesocycle_weeks})")
+    if day < 1:
+        raise HTTPException(status_code=400, detail="Day must be at least 1")
 
     # Reject if every set across all exercises is empty (reps=0 and weight=0)
     has_data = any(
@@ -67,26 +79,21 @@ def log_session(
     if not has_data:
         raise HTTPException(status_code=400, detail="Session cannot be empty. Log at least one set with reps or weight.")
 
-    # Check for duplicate
-    existing = db.query(SessionLog).filter(
-        SessionLog.plan_id == plan.id,
-        SessionLog.week_number == week,
-        SessionLog.day_number == day,
-    ).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Session already logged for this day")
-
     session_log = SessionLog(
         plan_id=plan.id,
         user_id=user.id,
         week_number=week,
         day_number=day,
-        pre_readiness=body.pre_readiness.dict() if body.pre_readiness else None,
-        logged_exercises=[e.dict() for e in body.logged_exercises],
+        pre_readiness=body.pre_readiness.model_dump() if body.pre_readiness else None,
+        logged_exercises=[e.model_dump() for e in body.logged_exercises],
         notes=body.notes,
     )
     db.add(session_log)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Session already logged for this day")
     db.refresh(session_log)
 
     return {
@@ -164,11 +171,13 @@ def list_week_sessions(
 
 
 @session_router.put("/{plan_id}/{week}/{day}")
+@limiter.limit("10/minute")
 def edit_session(
     plan_id: str,
     week: int,
     day: int,
     body: SessionCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -199,8 +208,8 @@ def edit_session(
     if not has_data:
         raise HTTPException(status_code=400, detail="Session cannot be empty.")
 
-    session_log.pre_readiness = body.pre_readiness.dict() if body.pre_readiness else None
-    session_log.logged_exercises = [e.dict() for e in body.logged_exercises]
+    session_log.pre_readiness = body.pre_readiness.model_dump() if body.pre_readiness else None
+    session_log.logged_exercises = [e.model_dump() for e in body.logged_exercises]
     session_log.notes = body.notes
     db.commit()
     db.refresh(session_log)

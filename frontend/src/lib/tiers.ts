@@ -1,5 +1,14 @@
 export type Tier = "free" | "pro" | "elite";
 
+const VALID_TIERS: ReadonlySet<string> = new Set(["free", "pro", "elite"]);
+
+export function validateTier(value: unknown): Tier {
+  if (typeof value === "string" && VALID_TIERS.has(value)) {
+    return value as Tier;
+  }
+  return "free";
+}
+
 export const TIER_FEATURES: Record<Tier, Record<string, boolean | number>> = {
   free: {
     web_search: false,

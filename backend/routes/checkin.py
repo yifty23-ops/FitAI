@@ -3,9 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from database import get_db
 from models.checkin import WeeklyCheckin
@@ -18,6 +21,7 @@ from tiers import check_feature
 logger = logging.getLogger(__name__)
 
 checkin_router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 # --- Request schema ---
@@ -33,10 +37,12 @@ class CheckinCreate(BaseModel):
 # --- Routes ---
 
 @checkin_router.post("/{plan_id}/{week}")
+@limiter.limit("5/minute")
 def create_checkin(
     plan_id: str,
     week: int,
     body: CheckinCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -46,6 +52,10 @@ def create_checkin(
     if not plan.is_active:
         raise HTTPException(status_code=400, detail="Cannot check in on an inactive plan")
 
+    # Validate week bounds
+    if week < 1 or week > plan.mesocycle_weeks:
+        raise HTTPException(status_code=400, detail=f"Week {week} is out of range (1-{plan.mesocycle_weeks})")
+
     # Require at least 1 session this week
     session_count = db.query(SessionLog).filter(
         SessionLog.plan_id == plan.id,
@@ -53,14 +63,6 @@ def create_checkin(
     ).count()
     if session_count == 0:
         raise HTTPException(status_code=400, detail="Log at least one session before checking in")
-
-    # Prevent duplicate check-in
-    existing = db.query(WeeklyCheckin).filter(
-        WeeklyCheckin.plan_id == plan.id,
-        WeeklyCheckin.week_number == week,
-    ).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="Check-in already submitted for this week")
 
     checkin = WeeklyCheckin(
         plan_id=plan.id,
@@ -73,11 +75,25 @@ def create_checkin(
         notes=body.notes,
     )
     db.add(checkin)
+    try:
+        db.flush()  # Flush to hit UNIQUE constraint before commit
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Check-in already submitted for this week")
+
+    # Try to advance the week (within the same transaction)
+    maybe_advance_week(plan, user, db)
+
     db.commit()
     db.refresh(checkin)
 
-    # Try to advance the week
-    maybe_advance_week(plan, user, db)
+    # Run adaptation after commit if week was advanced (needs committed data)
+    if getattr(plan, "_run_adaptation_after_commit", False):
+        from tools.adapt import adapt_plan
+        try:
+            adapt_plan(plan, user, db)
+        except (ValueError, KeyError, RuntimeError):
+            logger.exception("Adaptation failed for plan %s", plan.id)
 
     return {
         "id": str(checkin.id),
@@ -126,7 +142,11 @@ def list_checkins(
 # --- Week advancement ---
 
 def maybe_advance_week(plan: Plan, user: User, db: Session) -> None:
-    """Advance current_week when all sessions + check-in are done for the week."""
+    """Advance current_week when all sessions + check-in are done for the week.
+
+    NOTE: Caller is responsible for db.commit(). This function modifies state
+    within the caller's transaction to avoid race conditions.
+    """
     # Lock the plan row to prevent race conditions from concurrent requests
     plan = db.query(Plan).filter(Plan.id == plan.id).with_for_update().first()
     if not plan:
@@ -164,22 +184,16 @@ def maybe_advance_week(plan: Plan, user: User, db: Session) -> None:
         SessionLog.week_number == week,
     ).count()
 
-    # Check-in already exists (we just created it in the calling function)
+    # Check-in already exists (we just flushed it in the calling function)
     if completed >= planned_days and plan.current_week < plan.mesocycle_weeks:
         plan.current_week += 1
-        db.commit()
         logger.info("Plan %s advanced to week %d", plan.id, plan.current_week)
-
-        # Tier-gated adaptation hook (Phase 6)
-        if check_feature(user, "adaptation"):
-            from tools.adapt import adapt_plan
-            try:
-                adapt_plan(plan, user, db)
-            except Exception:
-                logger.exception("Adaptation failed for plan %s", plan.id)
 
         # Milestone detection for collective learning (Phase 7)
         if check_feature(user, "collective") and plan.current_week % 3 == 0:
             plan.milestone_pending = True
-            db.commit()
             logger.info("Milestone pending for plan %s at week %d", plan.id, plan.current_week)
+
+        # Tier-gated adaptation hook (Phase 6) — runs after commit in caller
+        # Adaptation needs committed data so we schedule it post-commit
+        plan._run_adaptation_after_commit = check_feature(user, "adaptation")
