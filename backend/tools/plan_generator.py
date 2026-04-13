@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy.orm import Session
+
+from config import settings
+from models.plan import Plan
+from models.profile import Profile
+from models.user import User
+from services.claude_client import ClaudeClient
+from tiers import TIER_FEATURES
+from tools.research import profile_to_research_dict, research_for_profile
+
+logger = logging.getLogger(__name__)
+
+
+def _build_profile_snapshot(profile: Profile) -> dict:
+    """Capture raw profile data at plan creation time."""
+    return {
+        "goal": profile.goal,
+        "age": profile.age,
+        "weight_kg": profile.weight_kg,
+        "height_cm": profile.height_cm,
+        "sex": profile.sex,
+        "experience": profile.experience,
+        "days_per_week": profile.days_per_week,
+        "session_minutes": profile.session_minutes,
+        "equipment": profile.equipment,
+        "injuries": profile.injuries,
+        "sleep_hours": profile.sleep_hours,
+        "stress_level": profile.stress_level,
+        "job_activity": profile.job_activity,
+        "diet_style": profile.diet_style,
+    }
+
+
+def _get_persona_display(tier: str, sport: str | None) -> str:
+    """Human-readable persona name for plan display."""
+    if tier == "elite":
+        sport_name = sport.title() if sport else "General"
+        return f"Elite {sport_name} Coach"
+    elif tier == "pro":
+        return "Pro Coach"
+    return "Free Coach"
+
+
+def generate_plan_for_profile(user: User, profile: Profile, db: Session) -> dict:
+    """Full plan generation pipeline: research -> generate -> save."""
+    tier = user.tier
+    sport = user.sport
+    competition_date = str(user.competition_date) if user.competition_date else None
+    mesocycle_weeks = TIER_FEATURES[tier]["max_mesocycle_weeks"]
+
+    # 1. Run research first (uses cache if available)
+    logger.info("Running research for user %s (tier=%s)", user.id, tier)
+    research = research_for_profile(user, profile, db)
+
+    # 2. Build profile dict for prompt
+    profile_dict = profile_to_research_dict(profile, user)
+
+    # 3. Call Claude for plan generation
+    logger.info("Generating plan for user %s (tier=%s, weeks=%d)", user.id, tier, mesocycle_weeks)
+    client = ClaudeClient(settings.anthropic_api_key)
+    result = client.generate_plan(
+        profile=profile_dict,
+        research=research,
+        tier=tier,
+        sport=sport,
+        competition_date=competition_date,
+    )
+
+    # 4. Validate required keys
+    if "plan" not in result or "nutrition" not in result:
+        raise ValueError("Plan generation result missing required keys: plan, nutrition")
+
+    # 5. Clean up any existing draft plans (prevents orphan drafts)
+    db.query(Plan).filter(
+        Plan.user_id == user.id,
+        Plan.is_active == False,
+    ).delete()
+
+    # 6. Create plan record (as draft — user must confirm to activate)
+    persona_used = _get_persona_display(tier, sport)
+    plan = Plan(
+        user_id=user.id,
+        tier_at_creation=tier,
+        profile_snapshot=_build_profile_snapshot(profile),
+        mesocycle_weeks=mesocycle_weeks,
+        current_week=1,
+        phase="accumulation",
+        plan_data=result["plan"],
+        nutrition=result["nutrition"],
+        persona_used=persona_used,
+        is_active=False,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    logger.info("Plan %s created for user %s", plan.id, user.id)
+
+    return {
+        "plan_id": str(plan.id),
+        "plan": result["plan"],
+        "nutrition": result["nutrition"],
+        "persona_used": persona_used,
+        "tier": tier,
+        "mesocycle_weeks": mesocycle_weeks,
+    }
