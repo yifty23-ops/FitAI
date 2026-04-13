@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Print styles for plan export */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 14pt;
+  }
+  /* Hide everything except plan content */
+  .no-print,
+  button,
+  nav,
+  [data-no-print] {
+    display: none !important;
+  }
+  /* Force light backgrounds for cards */
+  .bg-zinc-900,
+  .bg-zinc-950 {
+    background: white !important;
+    border-color: #ccc !important;
+  }
+  /* Ensure text is dark */
+  .text-white,
+  .text-zinc-100,
+  .text-zinc-200,
+  .text-zinc-300,
+  .text-zinc-400 {
+    color: #111 !important;
+  }
+  .text-zinc-500,
+  .text-zinc-600 {
+    color: #555 !important;
+  }
+  /* Exercise pills should be visible */
+  .bg-zinc-800 {
+    background: #f0f0f0 !important;
+    color: #111 !important;
+  }
+  /* Remove fixed positioning */
+  .fixed {
+    position: static !important;
+  }
+}
