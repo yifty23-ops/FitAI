@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after UX/Security/Performance improvement sweep on 2026-04-13.
+> Updated after knowledge update agent verification on 2026-04-13.
 
 ---
 
@@ -33,6 +33,16 @@ Phase 5 (visual polish): PeriodizationBar readability + phase legend, NutritionP
 Phase 6 (data consistency): Profile staleness warning, tier downgrade guard, week advancement race condition fix (SELECT FOR UPDATE), research cache broadening (age/weight buckets).
 Phase 7 (growth): Plan export via print-friendly CSS.
 Phase 8 (differentiation): Training calendar page.
+
+**Automated knowledge updates (2026-04-13):**
+Weekly scheduled agent (`fitai-knowledge-update`, trigger ID `trig_01RKBrXDpLf1eu6C4nEiwibd`) runs every Sunday 4am UTC on Claude's cloud. Reads `backend/tiers.py` and `backend/services/claude_client.py`, performs ~20-25 web searches across sports science journals, and opens a PR with citation-backed updates. Always creates a research log in `backend/knowledge_updates/YYYY-MM-DD.md` and a PR — even when no code changes are warranted.
+
+First run (2026-04-13) produced PR #1 with 3 changes:
+- `claude_client.py`: Volume citation updated from Schoenfeld (2017) to Pelland (2024) meta-regression (67 studies, n=2,058)
+- `tiers.py` SPORT_DEMANDS["tennis"]: Added GIRD (glenohumeral internal rotation deficit)
+- `tiers.py` SPORT_DEMANDS["mma"]: Updated weight-cut to specify gradual descent over acute dehydration (ISSN 2025 position stand)
+
+Manage at: https://claude.ai/code/scheduled/trig_01RKBrXDpLf1eu6C4nEiwibd
 
 ### API routes (31 route-methods as of 2026-04-13)
 
@@ -184,7 +194,7 @@ GET  /                 — health check
 
 ---
 
-## File tree (61 source files as of 2026-04-13)
+## File tree (62 source files as of 2026-04-13)
 
 ```
 fitai/
@@ -201,6 +211,9 @@ fitai/
 │   ├── database.py                    # engine (with connection pooling), SessionLocal, Base, get_db
 │   ├── tiers.py                       # PERSONAS, SPORT_DEMANDS, TIER_FEATURES, check_feature, check_plan_limit
 │   ├── test_research.py               # Manual test script for tier research quality comparison
+│   ├── knowledge_updates/
+│   │   ├── .gitkeep
+│   │   └── 2026-04-13.md              # First automated research log (volume citation, tennis GIRD, MMA weight mgmt)
 │   ├── models/
 │   │   ├── __init__.py                # Re-exports Base, engine, get_db + all models
 │   │   ├── user.py                    # User model (tier, sport, competition_date, stripe_customer_id)
