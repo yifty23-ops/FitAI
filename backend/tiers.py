@@ -54,13 +54,16 @@ SPORT_DEMANDS = {
         "GPS data-informed training and how to balance gym work with pitch sessions."
     ),
     "tennis": (
-        "rotational power, shoulder durability, lateral movement capacity, "
+        "rotational power, shoulder durability (including dominant-side glenohumeral "
+        "internal rotation deficit management, GIRD), lateral movement capacity, "
         "anti-rotation core strength, and tournament-schedule periodization. You "
         "understand the unique demands of a sport with no off-season and frequent travel."
     ),
     "mma": (
         "strength-to-weight optimization, grip and neck strength, power endurance, "
-        "fight-camp periodization, and weight-cut preparation. You understand how to "
+        "fight-camp periodization, and evidence-based weight management (prioritizing "
+        "gradual longitudinal weight descent over acute dehydration-based cuts to "
+        "preserve strength and power into competition). You understand how to "
         "peak strength and conditioning for a specific fight date while managing "
         "sparring load."
     ),

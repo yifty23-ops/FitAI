@@ -65,7 +65,7 @@ Synthesize into this EXACT JSON:
 }}
 
 BAD: {{"weekly_volume": "moderate volume"}}
-GOOD: {{"weekly_volume": "12-18 sets per muscle group per week, per Schoenfeld et al. (2017) dose-response meta-analysis"}}
+GOOD: {{"weekly_volume": "10-20 sets per muscle group per week (dose-response continues with diminishing returns beyond ~20 sets), per Pelland et al. (2024) meta-regression of 67 studies — Journal of Strength and Conditioning Research"}}
 """
 
 RESEARCH_PROMPT_ELITE = """Find ELITE-LEVEL training protocols for a competitive {sport} athlete:
