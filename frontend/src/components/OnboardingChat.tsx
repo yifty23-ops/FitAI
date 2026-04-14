@@ -132,6 +132,9 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
   // Hold interval ref for number stepper (must be at top level — Rules of Hooks)
   const holdInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Custom date picker view month
+  const [calendarViewDate, setCalendarViewDate] = useState(() => new Date());
+
   // --- Rotating placeholder ---
   useEffect(() => {
     if (phase !== "welcome") return;
@@ -365,6 +368,9 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
     if (field.field_name !== fieldName) return;
     if (field.type !== "single_select" && field.type !== "yes_no") return;
 
+    // Don't auto-advance when "other" is selected on diet_style — wait for custom text
+    if (field.field_name === "diet_style" && value === "other") return;
+
     // Set the answer and schedule auto-advance
     const newAnswers = { ...currentAnswers, [fieldName]: value };
     setCurrentAnswers(newAnswers);
@@ -493,6 +499,27 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
               </button>
             ))}
           </div>
+          {field.field_name === "diet_style" && selected === "other" && (
+            <div className="mt-3">
+              <input
+                type="text"
+                value={(currentAnswers["diet_style_custom"] as string) || ""}
+                onChange={(e) => {
+                  const custom = e.target.value;
+                  updateAnswer("diet_style_custom", custom);
+                  if (custom.trim()) {
+                    updateAnswer(field.field_name, `other: ${custom.trim()}`);
+                  } else {
+                    updateAnswer(field.field_name, "other");
+                  }
+                }}
+                placeholder="What's your diet?"
+                maxLength={100}
+                autoFocus
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 text-lg text-white placeholder:text-zinc-600 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all"
+              />
+            </div>
+          )}
         </div>
       );
     }
@@ -519,6 +546,27 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
             </button>
           ))}
         </div>
+        {field.field_name === "diet_style" && selected === "other" && (
+          <div className="mt-3">
+            <input
+              type="text"
+              value={(currentAnswers["diet_style_custom"] as string) || ""}
+              onChange={(e) => {
+                const custom = e.target.value;
+                updateAnswer("diet_style_custom", custom);
+                if (custom.trim()) {
+                  updateAnswer(field.field_name, `other: ${custom.trim()}`);
+                } else {
+                  updateAnswer(field.field_name, "other");
+                }
+              }}
+              placeholder="What's your diet?"
+              maxLength={100}
+              autoFocus
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 text-lg text-white placeholder:text-zinc-600 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all"
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -768,22 +816,149 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
     );
   }
 
-  // --- date ---
+  // --- date (custom calendar picker) ---
   function renderDate(field: OnboardingField) {
     const value = (currentAnswers[field.field_name] as string) || "";
+    const selectedDate = value ? new Date(value + "T00:00:00") : null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const minDate = field.min_date ? new Date(field.min_date + "T00:00:00") : null;
+    const maxDate = field.max_date ? new Date(field.max_date + "T00:00:00") : null;
+
+    const viewYear = calendarViewDate.getFullYear();
+    const viewMonth = calendarViewDate.getMonth();
+
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"];
+
+    // First day of the month (0=Sun)
+    const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+    // Build grid cells
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < firstDayOfMonth; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+    function navigateMonth(delta: number) {
+      setCalendarViewDate(new Date(viewYear, viewMonth + delta, 1));
+    }
+
+    function selectDay(day: number) {
+      const m = String(viewMonth + 1).padStart(2, "0");
+      const d = String(day).padStart(2, "0");
+      updateAnswer(field.field_name, `${viewYear}-${m}-${d}`);
+    }
+
+    function isDayDisabled(day: number): boolean {
+      const date = new Date(viewYear, viewMonth, day);
+      if (minDate && date < minDate) return true;
+      if (maxDate && date > maxDate) return true;
+      return false;
+    }
+
+    function isDaySelected(day: number): boolean {
+      if (!selectedDate) return false;
+      return selectedDate.getFullYear() === viewYear &&
+        selectedDate.getMonth() === viewMonth &&
+        selectedDate.getDate() === day;
+    }
+
+    function isDayToday(day: number): boolean {
+      return today.getFullYear() === viewYear &&
+        today.getMonth() === viewMonth &&
+        today.getDate() === day;
+    }
+
+    // Can navigate prev/next?
+    const canPrev = !minDate || new Date(viewYear, viewMonth, 0) >= minDate;
+    const canNext = !maxDate || new Date(viewYear, viewMonth + 1, 1) <= maxDate;
 
     return (
       <div>
         {showLabels && <p className="text-sm font-medium text-zinc-400 mb-3">{field.label}</p>}
-        <div className="relative">
-          <input
-            type="date"
-            value={value}
-            onChange={(e) => updateAnswer(field.field_name, e.target.value)}
-            min={field.min_date}
-            max={field.max_date}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 text-lg text-white focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all"
-          />
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          {/* Month/year header */}
+          <div className="flex items-center justify-between mb-4">
+            <button
+              type="button"
+              onClick={() => navigateMonth(-1)}
+              disabled={!canPrev}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                canPrev ? "hover:bg-zinc-800 text-zinc-300" : "text-zinc-700 cursor-not-allowed"
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <span className="text-base font-semibold text-white">
+              {monthNames[viewMonth]} {viewYear}
+            </span>
+            <button
+              type="button"
+              onClick={() => navigateMonth(1)}
+              disabled={!canNext}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                canNext ? "hover:bg-zinc-800 text-zinc-300" : "text-zinc-700 cursor-not-allowed"
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Day-of-week headers */}
+          <div className="grid grid-cols-7 mb-1">
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+              <div key={i} className="text-center text-xs font-medium text-zinc-600 py-1">{d}</div>
+            ))}
+          </div>
+
+          {/* Day cells */}
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((day, i) => {
+              if (day === null) {
+                return <div key={`empty-${i}`} className="h-10" />;
+              }
+              const disabled = isDayDisabled(day);
+              const selected = isDaySelected(day);
+              const isToday = isDayToday(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => !disabled && selectDay(day)}
+                  disabled={disabled}
+                  className={`h-10 rounded-lg text-sm font-medium transition-all duration-150 relative ${
+                    selected
+                      ? "bg-blue-500 text-white shadow-[0_0_12px_rgba(59,130,246,0.3)]"
+                      : disabled
+                        ? "text-zinc-700 cursor-not-allowed"
+                        : isToday
+                          ? "text-blue-400 hover:bg-zinc-800"
+                          : "text-zinc-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  {day}
+                  {isToday && !selected && (
+                    <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selected date display */}
+          {value && (
+            <p className="text-sm text-blue-400 text-center mt-3 font-medium">
+              {new Date(value + "T00:00:00").toLocaleDateString("en-US", {
+                weekday: "long", month: "long", day: "numeric", year: "numeric"
+              })}
+            </p>
+          )}
         </div>
       </div>
     );

@@ -26,6 +26,7 @@ class Profile(Base):
     stress_level = Column(Integer, nullable=True)
     job_activity = Column(String, nullable=True)
     diet_style = Column(String, nullable=True)
+    other_activities = Column(String, nullable=True)
     # Onboarding V2 fields
     training_age_years = Column(Integer, nullable=True)
     training_recency = Column(String, nullable=True)

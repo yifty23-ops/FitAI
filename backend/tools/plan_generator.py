@@ -44,6 +44,7 @@ def _build_profile_snapshot(profile: Profile) -> dict:
         "job_activity": profile.job_activity,
         "protein_intake_check": profile.protein_intake_check,
         "diet_style": profile.diet_style,
+        "other_activities": profile.other_activities,
         "current_max_bench": profile.current_max_bench,
         "current_max_squat": profile.current_max_squat,
         "current_max_deadlift": profile.current_max_deadlift,

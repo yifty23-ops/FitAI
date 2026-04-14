@@ -95,6 +95,7 @@ def profile_to_research_dict(profile: Profile, user: User) -> dict:
         "job_activity": sanitize_for_prompt(profile.job_activity or "unknown", max_length=20),
         "protein_intake_check": sanitize_for_prompt(profile.protein_intake_check or "unknown", max_length=10),
         "diet_style": sanitize_for_prompt(profile.diet_style or "unknown", max_length=20),
+        "other_activities": sanitize_for_prompt(profile.other_activities or "none", max_length=300),
         "current_max_bench": json.dumps(profile.current_max_bench) if profile.current_max_bench else "not provided",
         "current_max_squat": json.dumps(profile.current_max_squat) if profile.current_max_squat else "not provided",
         "current_max_deadlift": json.dumps(profile.current_max_deadlift) if profile.current_max_deadlift else "not provided",

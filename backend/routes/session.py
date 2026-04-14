@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -8,11 +10,18 @@ from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+import logging
+
+from config import settings
 from database import get_db
 from models.plan import Plan
+from models.profile import Profile
 from models.session import SessionLog
 from models.user import User
 from routes.auth import get_current_user
+from services.claude_client import ClaudeClient
+
+logger = logging.getLogger(__name__)
 
 session_router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -219,3 +228,86 @@ def edit_session(
         "day_number": session_log.day_number,
         "completed_at": session_log.completed_at.isoformat() if session_log.completed_at else None,
     }
+
+
+# --- Time adjustment ---
+
+class SessionAdjustRequest(BaseModel):
+    available_minutes: int = Field(ge=10, le=300)
+
+
+def _extract_day_exercises(plan_data: dict, week: int, day: int) -> list | None:
+    """Extract exercises for a specific day from plan_data."""
+    # Normalize weeks from various JSON shapes
+    weeks = []
+    if isinstance(plan_data, dict):
+        weeks = plan_data.get("weeks", [])
+        if not weeks and "plan" in plan_data:
+            inner = plan_data["plan"]
+            if isinstance(inner, dict):
+                weeks = inner.get("weeks", [])
+            elif isinstance(inner, list):
+                weeks = inner
+    elif isinstance(plan_data, list):
+        weeks = plan_data
+
+    week_data = next((w for w in weeks if w.get("week_number") == week), None)
+    if not week_data:
+        return None
+    day_data = next(
+        (d for d in week_data.get("days", []) if d.get("day_number") == day),
+        None,
+    )
+    if not day_data:
+        return None
+    return day_data.get("exercises", [])
+
+
+@session_router.post("/{plan_id}/{week}/{day}/adjust")
+@limiter.limit("5/minute")
+def adjust_session_time(
+    plan_id: str,
+    week: int,
+    day: int,
+    body: SessionAdjustRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user.id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    # Extract planned exercises for this day
+    planned_exercises = _extract_day_exercises(plan.plan_data, week, day)
+    if not planned_exercises:
+        raise HTTPException(status_code=404, detail="Day not found in plan")
+
+    # Get profile for session_minutes context
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    planned_minutes = profile.session_minutes if profile else 60
+
+    # Build a compact profile summary for context
+    profile_summary = {}
+    if profile:
+        profile_summary = {
+            "goal": profile.goal,
+            "experience": profile.experience,
+            "session_minutes": profile.session_minutes,
+        }
+
+    client = ClaudeClient(settings.anthropic_api_key)
+    try:
+        result = client.adjust_session(
+            planned_exercises=planned_exercises,
+            planned_minutes=planned_minutes,
+            available_minutes=body.available_minutes,
+            profile=profile_summary,
+        )
+    except Exception as e:
+        logger.error("Session time adjustment failed: %s", e)
+        raise HTTPException(
+            status_code=500, detail="Failed to adjust session. Please try again."
+        )
+
+    return result

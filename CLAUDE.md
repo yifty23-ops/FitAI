@@ -197,7 +197,8 @@ fitai/
 │   ├── migrations/
 │   │   ├── 001_phase1.sql
 │   │   ├── 002_phase8_chat.sql
-│   │   └── 003_indexes_and_cascade.sql
+│   │   ├── 003_indexes_and_cascade.sql
+│   │   └── 006_other_activities.sql
 │   ├── requirements.txt                # includes slowapi
 │   └── .env
 └── CLAUDE.md
@@ -617,7 +618,7 @@ Key: `fitai_onboarding_v4` in sessionStorage. Survives page refresh. 24h expiry.
 
 ---
 
-## API routes — updated (32 route-methods as of 2026-04-14)
+## API routes — updated (33 route-methods as of 2026-04-14)
 
 ### Auth
 ```
@@ -686,6 +687,11 @@ POST /session/{plan_id}/{week}/{day}
 
 PUT /session/{plan_id}/{week}/{day}
   Edit session within 24 hours of completion
+
+POST /session/{plan_id}/{week}/{day}/adjust
+  Rate limit: 5/min. Body: { available_minutes: int (10-300) }
+  AI adjusts workout for available time without deviating from plan intent.
+  Returns: { adjusted_exercises: [...], summary: string, estimated_minutes: int }
 
 GET /session/{plan_id}          — paginated
 GET /session/{plan_id}/{week}   — week sessions
@@ -1171,3 +1177,35 @@ psql $DATABASE_URL -f backend/migrations/001_phase1.sql
   - Progress bar uses tier-based estimates (free ~6, pro ~9, elite ~11), capped at 95% until done
   - sessionStorage key bumped to fitai_onboarding_v4
   - No database changes, no new API endpoints
+
+### 7-Issue Fix & Feature Sweep — 2026-04-14
+- Built:
+  - Fixed critical plan generation bug: two-stage `.format()` in `_build_plan_prompt()` broke JSON example braces in plan prompts. Collapsed to single-stage format with all kwargs. Also hardened `_retry_json_extraction` error handling.
+  - Toned down AI onboarding voice: prompt rule changed from "like a coach greeting" to "direct and professional, no exclamation marks, no fluff"
+  - Custom session duration: `session_minutes` changed from single_select (30/45/60/75/90) to number (min 15, max 180, step 5)
+  - Diet "other" text field: conditional text input appears when "other" selected on diet_style. Stores as "other: <custom text>". Auto-advance disabled for "other". Backend validation accepts "other:..." strings.
+  - Other activities field: new `other_activities` textarea (max 300 chars) added to Profile model, ProfileCreate/Response, profile snapshot, research dict, all 3 research prompts, TRAINING_RULES (rule 15). AI asks about it for all tiers. New migration 006_other_activities.sql.
+  - Custom date picker: replaced native `<input type="date">` with custom calendar widget (month navigation, 7-col day grid, min/max constraints, today indicator, blue selection). New `calendarViewDate` state.
+  - Day-of time adjustment (NEW FEATURE): POST /session/{planId}/{week}/{day}/adjust endpoint. New `adjust_session()` Claude method. Frontend: time stepper (+/- 5 min) on session page, "Adjust"/"Reset" buttons, re-initializes exercise logs from adjusted result.
+  - Modified backend/services/claude_client.py (plan prompt templates, ONBOARDING_SYSTEM, TRAINING_RULES, research prompts, new SESSION_ADJUST prompts, new adjust_session method)
+  - Modified backend/routes/session.py (new /adjust endpoint, SessionAdjustRequest, _extract_day_exercises helper)
+  - Modified backend/routes/profile.py (diet_style validation relaxed, other_activities field added)
+  - Modified backend/models/profile.py (other_activities column)
+  - Modified backend/tools/plan_generator.py (other_activities in profile snapshot)
+  - Modified backend/tools/research.py (other_activities in research dict)
+  - Modified frontend/src/components/OnboardingChat.tsx (diet "other" text field, custom date picker, calendarViewDate state)
+  - Modified frontend/src/app/session/[planId]/[week]/[day]/page.tsx (time adjustment UI + logic)
+  - New backend/migrations/006_other_activities.sql
+- Works:
+  - Check 1: Backend starts with 33 routes, all modules import cleanly
+  - Check 2: Frontend builds with zero TypeScript errors, all 10 pages generate
+  - Check 3: Plan prompt format verified for all 3 tiers (free/pro/elite)
+  - Check 4: Session adjust prompt formats correctly
+  - Check 5-N: Browser testing pending
+- Decisions:
+  - Plan prompt fix: single-stage `.format()` with all kwargs. Templates use single braces for placeholders, double braces only for JSON examples.
+  - `from __future__ import annotations` added to routes/session.py for `_extract_day_exercises` helper (safe: not a route handler type annotation). All Pydantic models still use `Optional[...]`.
+  - `other_activities` is a CONTEXTUAL OPTIONAL field (not required). AI always asks about it but users can say "none".
+  - Time adjustment prompt is heavily constrained: don't change exercises or order, only reduce/add sets, remove from end if short on time. Designed to NOT deviate from the plan.
+  - Diet "other" stores as "other: <text>" — single field, no new column needed.
+  - Migration 006 NOT YET APPLIED to Neon DB.

@@ -29,6 +29,7 @@ RESEARCH_PROMPT_FREE = """Based on your knowledge of exercise science, recommend
 - Sleep: {sleep_hours}h, Stress: {stress_level}/10
 - Protein intake adequate (>=1.6g/kg): {protein_intake_check}
 - Diet: {diet_style}
+- Other training/activities: {other_activities}
 
 Return this EXACT JSON:
 {{
@@ -66,6 +67,7 @@ RESEARCH_PROMPT_PRO = """Find optimal training protocols for this person:
 - Sleep: {sleep_hours}h, Stress: {stress_level}/10
 - Protein intake adequate (>=1.6g/kg): {protein_intake_check}
 - Diet: {diet_style}
+- Other training/activities: {other_activities}
 
 Search for: "{goal} {goal_sub_category} training protocol {experience} evidence-based"
 Then: "optimal training volume {goal} meta-analysis"
@@ -113,6 +115,7 @@ RESEARCH_PROMPT_ELITE = """Find ELITE-LEVEL training protocols for a competitive
 - Sleep: {sleep_hours}h, Stress: {stress_level}/10
 - Protein intake adequate (>=1.6g/kg): {protein_intake_check}
 - Diet: {diet_style}
+- Other training/activities: {other_activities}
 
 Search for: "{sport} strength conditioning elite athlete protocol"
 Then: "{sport} periodization competition peaking model"
@@ -177,6 +180,8 @@ MANDATORY PROGRAMMING RULES — apply these based on the athlete's data above:
 13. GOAL DEADLINE: If a specific deadline is set, reverse-engineer the periodization to peak on that date. Structure: GPP → intensification → pre-peak → taper.
 
 14. TRAINING AGE: Combined with experience level, set volume floor and ceiling. <1 year training age: 6-10 sets/muscle/week. 1-3 years: 10-16 sets. 3+ years: 14-20+ sets (if recovery supports it).
+
+15. OTHER ACTIVITIES: If the user does other training or sports (other_activities field), factor this into total weekly training stress. Reduce gym volume accordingly — external activities contribute to systemic fatigue. If they play a sport or do cardio 2+ times per week, reduce overlapping muscle group gym volume by 20-30%. Schedule gym sessions to avoid stacking with external training on the same day when possible. If they do endurance activities, cap high-rep leg work to avoid overuse.
 """
 
 TRAINING_RULES_ELITE_SUFFIX = """
@@ -192,9 +197,9 @@ SPORT-SPECIFIC RULES:
 
 # --- Plan generation prompt templates ---
 
-PLAN_PROMPT_FREE = """Generate a basic {{mesocycle_weeks}}-week training plan.
-PROFILE: {{profile}}
-PROTOCOLS: {{research}}
+PLAN_PROMPT_FREE = """Generate a basic {mesocycle_weeks}-week training plan.
+PROFILE: {profile}
+PROTOCOLS: {research}
 {training_rules}
 
 Keep it simple and effective. 4-week blocks, straightforward progression.
@@ -204,9 +209,9 @@ BAD: {{"load_instruction": "moderate weight"}}
 GOOD: {{"load_instruction": "RPE 7-8, increase weight when all reps completed"}}
 """
 
-PLAN_PROMPT_PRO = """Generate a complete {{mesocycle_weeks}}-week periodized plan.
-PROFILE: {{profile}}
-RESEARCH: {{research}}
+PLAN_PROMPT_PRO = """Generate a complete {mesocycle_weeks}-week periodized plan.
+PROFILE: {profile}
+RESEARCH: {research}
 {training_rules}
 
 Requirements:
@@ -219,19 +224,19 @@ BAD: {{"load_instruction": "moderate weight"}}
 GOOD: {{"load_instruction": "start at 70% 1RM, add 2.5kg when 10 reps hit on all sets at RPE <8"}}
 """
 
-PLAN_PROMPT_ELITE = """Generate an elite {{mesocycle_weeks}}-week plan for a competitive {{sport}} athlete.
-PROFILE: {{profile}}
-RESEARCH: {{research}}
-COMPETITION DATE: {{competition_date}}
+PLAN_PROMPT_ELITE = """Generate an elite {mesocycle_weeks}-week plan for a competitive {sport} athlete.
+PROFILE: {profile}
+RESEARCH: {research}
+COMPETITION DATE: {competition_date}
 {training_rules}
 
 Requirements:
-1. EVERY exercise must transfer to {{sport}} performance — justify each choice
-2. Periodization must peak for competition date (reverse-engineer from {{competition_date}})
+1. EVERY exercise must transfer to {sport} performance — justify each choice
+2. Periodization must peak for competition date (reverse-engineer from {competition_date})
 3. Phase structure: GPP → sport-specific → pre-competition → taper → peak
-4. Account for sport training volume (this is SUPPLEMENTAL to their {{sport}} training)
+4. Account for sport training volume (this is SUPPLEMENTAL to their {sport} training)
 5. Include sport-specific warmup/activation protocols
-6. Injury prevention exercises for {{sport}}-specific risk areas
+6. Injury prevention exercises for {sport}-specific risk areas
 7. Load and volume must respect the athlete's total training stress (sport + gym combined)
 
 BAD: {{"label": "Upper Body Day", "focus": "chest and back"}}
@@ -301,6 +306,47 @@ BAD: {{"change": "increase weight", "reason": "progressive overload"}}
 GOOD: {{"change": "increase from 60kg to 62.5kg", "reason": "hit 10 reps at RPE 7 for 3 sets, below target RPE 8. Competition is 8 weeks away — still in accumulation, safe to progress."}}
 """
 
+# --- Session time adjustment prompt ---
+
+SESSION_ADJUST_SYSTEM = (
+    "You are a training coach making a same-day time adjustment to a planned workout. "
+    "You must respect the original programming intent while fitting within the available time. "
+    "Return ONLY valid JSON."
+)
+
+SESSION_ADJUST_PROMPT = """PLANNED SESSION:
+{planned_exercises}
+
+ORIGINAL PLANNED TIME: {planned_minutes} minutes
+AVAILABLE TIME TODAY: {available_minutes} minutes
+USER PROFILE SUMMARY: {profile}
+
+Adjust this session to fit the available time. Rules:
+1. Do NOT change the exercise order or substitute different exercises
+2. If SHORT on time: reduce sets (minimum 2 per compound, 1 per isolation), then remove the LEAST important exercises from the end of the list
+3. If EXTRA time: add 1 set to compound movements first, then optionally add a finisher exercise targeting the same muscle groups
+4. The workout MUST still target the same muscle groups and movement patterns as the original
+5. Keep rest periods realistic — don't suggest 30s rest on heavy compounds just to save time
+6. Warm-up sets are NOT negotiable — keep them
+7. If the time difference is small (within 10 minutes), make minimal changes
+
+Return ONLY valid JSON:
+{{
+  "adjusted_exercises": [
+    {{
+      "name": "exercise name",
+      "sets": 3,
+      "reps": "8-10",
+      "load_instruction": "specific instruction",
+      "rest_seconds": 90,
+      "notes": "why this was changed, or 'unchanged'"
+    }}
+  ],
+  "summary": "1-sentence explanation of what changed",
+  "estimated_minutes": 45
+}}
+"""
+
 # --- Onboarding question generation prompt ---
 
 ONBOARDING_SYSTEM = """You are FitAI's onboarding coach. Your job is to collect a user's fitness profile through a natural, adaptive conversation — one question at a time.
@@ -319,7 +365,7 @@ Every field maps to a key in the profile schema. Use the exact field_name values
 - sex: single_select. Values: male, female.
 - experience: single_select. Values: beginner ("Less than 1 year consistent training"), intermediate ("1-3 years consistent"), advanced ("3+ years structured training").
 - training_days_specific: day_picker. Values: mon, tue, wed, thu, fri, sat, sun. Multi-select weekdays. (days_per_week is derived from this automatically)
-- session_minutes: single_select. Values and labels: 30 ("30 min"), 45 ("45 min"), 60 ("60 min"), 75 ("75 min"), 90 ("90 min"). Each option value should be a number.
+- session_minutes: number. Min 15, max 180, step 5. Unit: minutes.
 - equipment: multi_select. Values: barbell, dumbbells, kettlebells, pull_up_bar, cables, machines, bands, squat_rack, bench, bodyweight_only. Note: bodyweight_only is mutually exclusive with others.
 - sleep_hours: number. Min 3, max 12, step 0.5. Unit: hours.
 - stress_level: slider. Min 1, max 10, step 1. Min label: "Low", max label: "High".
@@ -327,6 +373,7 @@ Every field maps to a key in the profile schema. Use the exact field_name values
 - diet_style: single_select. Values: omnivore, vegetarian, vegan, keto, halal, other.
 
 ### CONTEXTUAL OPTIONAL FIELDS (ask when relevant based on answers):
+- other_activities: textarea. Max 300 chars. Placeholder: "e.g., I play soccer twice a week, swim 3x/week, do yoga daily". Ask ALL tiers — recovery planning depends on knowing what else the user does physically. If they have no other activities, they can type "none". Weave this question naturally — e.g., after asking about training days, ask what else they do during the week. If goal_description mentions another sport or activity, ask about it early.
 - goal_sub_category: single_select. Depends on goal:
   - fat_loss → cut ("Cut — lose fat, preserve muscle"), recomp ("Recomp — lose fat, gain muscle")
   - muscle → hypertrophy ("Hypertrophy — maximize size"), strength ("Strength — maximize force"), powerbuilding ("Powerbuilding — size + strength")
@@ -379,7 +426,7 @@ Signal done ONLY when you genuinely believe you have enough information to gener
 
 ## RULES
 
-1. Your "message" field should be conversational and brief — like a coach greeting, not a form label. Reference their previous answers naturally.
+1. Your "message" field should be direct and professional — a competent coach who respects the user's time. Brief and warm, but NOT cheery, NOT exclamatory. No "Hey awesome!", no "Great job!", no "Love it!", no excessive enthusiasm or emojis. Think: a coach texting between clients — clear, human, zero fluff. Reference previous answers naturally when relevant.
 2. Adapt question order and phrasing based on context:
    - If goal_description mentions a sport or competition, ask about sport context early (even for non-elite tiers, though sport field is only required for elite).
    - If user reports injuries or high pain, follow up with safety questions.
@@ -562,6 +609,27 @@ class ClaudeClient:
 
         return self._extract_json(response)
 
+    def adjust_session(
+        self,
+        planned_exercises: list,
+        planned_minutes: int,
+        available_minutes: int,
+        profile: dict,
+    ) -> dict:
+        prompt = SESSION_ADJUST_PROMPT.format(
+            planned_exercises=json.dumps(planned_exercises, indent=2),
+            planned_minutes=planned_minutes,
+            available_minutes=available_minutes,
+            profile=json.dumps(profile, indent=2),
+        )
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+            system=SESSION_ADJUST_SYSTEM,
+        )
+        return self._extract_json(response)
+
     def chat(
         self,
         context: dict,
@@ -674,29 +742,21 @@ class ClaudeClient:
         if tier == "elite":
             rules += TRAINING_RULES_ELITE_SUFFIX
 
+        kwargs = dict(
+            training_rules=rules,
+            profile=json.dumps(profile, indent=2),
+            research=json.dumps(research, indent=2),
+            mesocycle_weeks=mesocycle_weeks,
+        )
+
         if tier == "elite":
-            template = PLAN_PROMPT_ELITE.format(training_rules=rules)
-            return template.format(
-                profile=json.dumps(profile, indent=2),
-                research=json.dumps(research, indent=2),
-                mesocycle_weeks=mesocycle_weeks,
-                sport=sport or "general",
-                competition_date=competition_date or "none",
-            )
+            kwargs["sport"] = sport or "general"
+            kwargs["competition_date"] = competition_date or "none"
+            return PLAN_PROMPT_ELITE.format(**kwargs)
         elif tier == "pro":
-            template = PLAN_PROMPT_PRO.format(training_rules=rules)
-            return template.format(
-                profile=json.dumps(profile, indent=2),
-                research=json.dumps(research, indent=2),
-                mesocycle_weeks=mesocycle_weeks,
-            )
+            return PLAN_PROMPT_PRO.format(**kwargs)
         else:
-            template = PLAN_PROMPT_FREE.format(training_rules=rules)
-            return template.format(
-                profile=json.dumps(profile, indent=2),
-                research=json.dumps(research, indent=2),
-                mesocycle_weeks=mesocycle_weeks,
-            )
+            return PLAN_PROMPT_FREE.format(**kwargs)
 
     def _build_research_system(self, tier: str) -> str:
         if tier == "free":
@@ -787,4 +847,10 @@ class ClaudeClient:
             clean = clean[:-3]
         clean = clean.strip()
 
-        return json.loads(clean)
+        try:
+            return json.loads(clean)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Failed to extract valid JSON after retry. Parse error: {e}. "
+                f"Response snippet: {clean[:200]}"
+            ) from e

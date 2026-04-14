@@ -11,6 +11,7 @@ import type { PeriodWeek, TrainingDay, Exercise } from "@/components/Periodizati
 interface PlanDetail {
   id: string;
   plan_data: Record<string, unknown>;
+  profile_snapshot?: Record<string, unknown>;
   current_week: number;
   mesocycle_weeks: number;
 }
@@ -146,6 +147,14 @@ export default function SessionPage({
   // Celebration
   const [showCelebration, setShowCelebration] = useState(false);
 
+  // Time adjustment
+  const [planSessionMinutes, setPlanSessionMinutes] = useState(60);
+  const [availableMinutes, setAvailableMinutes] = useState<number | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustedExercises, setAdjustedExercises] = useState<Exercise[] | null>(null);
+  const [adjustSummary, setAdjustSummary] = useState("");
+  const [adjustError, setAdjustError] = useState("");
+
   useEffect(() => {
     const user = getUser();
     if (!user) {
@@ -188,6 +197,13 @@ export default function SessionPage({
           } catch {
             // Previous week data is optional — silently ignore errors
           }
+        }
+
+        // Extract session_minutes from profile snapshot
+        const snapshotMinutes = plan.profile_snapshot?.session_minutes;
+        if (typeof snapshotMinutes === "number" && snapshotMinutes > 0) {
+          setPlanSessionMinutes(snapshotMinutes);
+          setAvailableMinutes(snapshotMinutes);
         }
 
         // Find the day in plan_data
@@ -257,6 +273,60 @@ export default function SessionPage({
     setRestTimerActive(false);
   }, []);
 
+  async function adjustTime() {
+    if (availableMinutes === null || availableMinutes === planSessionMinutes) return;
+    setAdjusting(true);
+    setAdjustError("");
+    try {
+      const result = await api<{
+        adjusted_exercises: Exercise[];
+        summary: string;
+        estimated_minutes: number;
+      }>(`/session/${planId}/${week}/${day}/adjust`, {
+        method: "POST",
+        body: JSON.stringify({ available_minutes: availableMinutes }),
+        timeoutMs: 60_000,
+      });
+      setAdjustedExercises(result.adjusted_exercises);
+      setAdjustSummary(result.summary);
+      // Re-initialize exercise logs from adjusted exercises
+      setExerciseLogs(
+        result.adjusted_exercises.map((ex) => ({
+          name: ex.name,
+          sets: Array.from({ length: ex.sets ?? 3 }, () => ({
+            reps: 0,
+            weight_kg: 0,
+            rpe: null,
+          })),
+        }))
+      );
+    } catch (err) {
+      setAdjustError(err instanceof Error ? err.message : "Failed to adjust session");
+    } finally {
+      setAdjusting(false);
+    }
+  }
+
+  function resetAdjustment() {
+    setAdjustedExercises(null);
+    setAdjustSummary("");
+    setAvailableMinutes(planSessionMinutes);
+    // Re-initialize from original exercises
+    if (dayData) {
+      const exercises = dayData.exercises ?? [];
+      setExerciseLogs(
+        exercises.map((ex) => ({
+          name: ex.name,
+          sets: Array.from({ length: ex.sets ?? 3 }, () => ({
+            reps: 0,
+            weight_kg: 0,
+            rpe: null,
+          })),
+        }))
+      );
+    }
+  }
+
   const handleRestTimerDismiss = useCallback(() => {
     setRestTimerActive(false);
   }, []);
@@ -309,7 +379,7 @@ export default function SessionPage({
     );
   }
 
-  const plannedExercises: Exercise[] = dayData?.exercises ?? [];
+  const plannedExercises: Exercise[] = adjustedExercises ?? dayData?.exercises ?? [];
 
   // Check if any exercise has actual data logged
   const hasAnyData = exerciseLogs.some((ex) =>
@@ -452,6 +522,66 @@ export default function SessionPage({
             </div>
           )}
         </div>
+
+        {/* Time adjustment */}
+        {!existingSession && (
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+            <p className="text-sm font-medium text-zinc-300 mb-3">
+              How much time do you have?
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setAvailableMinutes(Math.max(15, (availableMinutes ?? planSessionMinutes) - 5))}
+                disabled={adjusting}
+                className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 active:scale-90 transition-all flex items-center justify-center text-lg"
+              >
+                −
+              </button>
+              <div className="text-center">
+                <span className="text-2xl font-bold text-white">
+                  {availableMinutes ?? planSessionMinutes}
+                </span>
+                <span className="text-sm text-zinc-500 ml-1">min</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAvailableMinutes(Math.min(180, (availableMinutes ?? planSessionMinutes) + 5))}
+                disabled={adjusting}
+                className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 active:scale-90 transition-all flex items-center justify-center text-lg"
+              >
+                +
+              </button>
+              <div className="ml-auto flex items-center gap-2">
+                {adjustedExercises && (
+                  <button
+                    type="button"
+                    onClick={resetAdjustment}
+                    className="px-3 py-2 text-xs text-zinc-400 hover:text-white transition-colors"
+                  >
+                    Reset
+                  </button>
+                )}
+                {availableMinutes !== null && availableMinutes !== planSessionMinutes && !adjustedExercises && (
+                  <button
+                    type="button"
+                    onClick={adjustTime}
+                    disabled={adjusting}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors"
+                  >
+                    {adjusting ? "Adjusting..." : "Adjust"}
+                  </button>
+                )}
+              </div>
+            </div>
+            {adjustSummary && (
+              <p className="text-xs text-blue-400 mt-2">{adjustSummary}</p>
+            )}
+            {adjustError && (
+              <p className="text-xs text-red-400 mt-2">{adjustError}</p>
+            )}
+          </div>
+        )}
 
         {/* Exercises */}
         {plannedExercises.map((planned, exIdx) => {

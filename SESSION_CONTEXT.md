@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after Bug Fix Sweep on 2026-04-14.
+> Updated after 7-issue fix & feature sweep on 2026-04-14.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + AI-Driven Onboarding V4 + Bug Fix Sweep DEPLOYED
+## Current state: All core features + Onboarding V4 + Bug Fixes + 7-Issue Sweep DEPLOYED
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -179,7 +179,7 @@ The AI decides when it has enough information — no arbitrary cap. Depth scales
 | `text` | Basic input | Large rounded, auto-focus, Enter to submit |
 | `textarea` | Text area + char count text | Auto-resize + color-coded progress bar |
 | `slider` | Plain range with accent-blue | Custom gradient track + floating value bubble + stress color coding |
-| `date` | Basic date input | Rounded container, same native picker |
+| `date` | Basic date input | Custom calendar widget: month navigation, 7-col day grid, min/max constraints, today indicator, blue selection |
 | `day_picker` | Small pills in row | Round circles with glow, day count below |
 | `yes_no` | Two small pills | Large two-card layout, green "Yes" tint, auto-advance |
 | `strength_benchmarks` | Dense inline inputs | Three stacked cards per lift, centered inputs |
@@ -299,6 +299,48 @@ Files that still have it (safe): `services/claude_client.py`, `tools/adapt.py`, 
 
 **Rule**: NEVER add `from __future__ import annotations` to any file in `backend/routes/`. Use `Optional[str]` instead of `str | None`.
 
+**Exception**: `backend/routes/session.py` now has `from __future__ import annotations` because the new `_extract_day_exercises` helper uses `list | None` return type and it's NOT a route-level type annotation (it's a plain function, not a FastAPI path param). This is safe because FastAPI doesn't inspect non-route functions. However, no Pydantic body models in that file use `str | None` — they all use `Optional[...]`.
+
+---
+
+## 7-Issue Fix & Feature Sweep (2026-04-14)
+
+### What changed and why
+
+User reported 7 issues: a critical plan generation bug, UX problems in onboarding, and 2 new feature requests. All 7 were implemented in a single focused sweep.
+
+### Issues fixed
+
+| # | Issue | Type | Root cause / Description | Fix | Files |
+|---|-------|------|--------------------------|-----|-------|
+| 7 | Plan generation always fails | CRITICAL BUG | Two-stage `.format()` in `_build_plan_prompt()`. Stage 1 (`template.format(training_rules=rules)`) converted JSON example braces `{{"load_instruction"...}}` → `{"load_instruction"...}`. Stage 2 (`.format(profile=..., ...)`) then choked on naked braces → KeyError → "Plan generation failed." | Collapsed to single-stage `.format()` with all kwargs. Changed templates to use single braces `{mesocycle_weeks}` for placeholders, keep `{{...}}` only for JSON examples. Also wrapped `_retry_json_extraction` in descriptive ValueError. | `claude_client.py` |
+| 1 | AI onboarding voice too cheery | UX | Prompt rule said "like a coach greeting, not a form label" → AI responded with "Hey awesome!", "Love it!" | Changed to "direct and professional — a competent coach who respects the user's time. No exclamation marks, no fluff." | `claude_client.py` |
+| 2 | No custom session duration entry | UX | `session_minutes` was `single_select` with fixed options (30/45/60/75/90) | Changed to `number` type (min 15, max 180, step 5, unit minutes). Frontend's existing stepper renderer handles it. | `claude_client.py` |
+| 4 | No text field for "other" diet | UX | Selecting "other" on diet_style stored literal "other" — no way to specify custom diet | Added conditional text input when "other" is selected. Stores as `"other: <custom text>"`. Backend validation updated to accept `"other:..."` strings. Auto-advance disabled for "other" selection. | `OnboardingChat.tsx`, `profile.py` |
+| 6 | AI doesn't ask about other activities | MISSING FIELD | No field existed for training/sports outside the stated goal. Recovery planning was blind to external load. | New `other_activities` textarea field (max 300 chars). Added to: Profile model, ProfileCreate/Response, profile snapshot, research dict, all 3 research prompts, TRAINING_RULES (rule 15: reduce overlapping gym volume by 20-30% for external training). AI prompted to ask about it for all tiers. New migration `006_other_activities.sql`. | `claude_client.py`, `profile.py` (model+routes), `plan_generator.py`, `research.py`, `OnboardingChat.tsx` (prompt only) |
+| 5 | Date picker uses native browser input | UX | `renderDate` used `<input type="date">` — user requires all calendars to be custom coded | Built custom inline calendar: month/year navigation, 7-column day grid, min/max date constraints, today indicator, blue selected highlight, dark theme. New `calendarViewDate` state for month tracking. | `OnboardingChat.tsx` |
+| 3 | No way to adjust workout for available time | NEW FEATURE | Users couldn't tell the AI they have more/less time on a given day | New endpoint `POST /session/{plan_id}/{week}/{day}/adjust`. New `adjust_session()` Claude method with constrained prompt (don't change exercises, reduce/add sets, remove from end if short on time). Frontend: time stepper (+/- 5 min) on session page, "Adjust" button, "Reset" to restore original. | `claude_client.py`, `session.py`, `session/[planId]/[week]/[day]/page.tsx` |
+
+### New training rule
+
+**Rule 15 (OTHER ACTIVITIES):** If the user does other training or sports, reduce overlapping muscle group gym volume by 20-30%. Schedule gym sessions to avoid stacking with external training. Cap high-rep leg work for endurance athletes.
+
+### New endpoint
+
+```
+POST /session/{plan_id}/{week}/{day}/adjust  — adjust session for available time (rate-limited 5/min, 10-300 min range)
+  Body: { available_minutes: int }
+  Returns: { adjusted_exercises: [...], summary: string, estimated_minutes: int }
+```
+
+### New migration
+
+- `backend/migrations/006_other_activities.sql` — Adds `other_activities TEXT` to profiles table. **NOT YET APPLIED to Neon DB.**
+
+### `from __future__ import annotations` update
+
+`backend/routes/session.py` now has this import for the `_extract_day_exercises` helper function (uses `list | None`). This is safe because the function is not a FastAPI route handler. All Pydantic body models in the file still use `Optional[...]` style.
+
 ### New migration files
 
 - `backend/migrations/004_unique_constraints_and_checks.sql` — **APPLIED to Neon DB**. 3 UNIQUE + 3 CHECK constraints.
@@ -306,7 +348,7 @@ Files that still have it (safe): `services/claude_client.py`, `tools/adapt.py`, 
 
 ---
 
-### API routes (32 route-methods as of 2026-04-14)
+### API routes (33 route-methods as of 2026-04-14)
 
 ```
 POST /auth/signup           — register (rate-limited 3/min, email validated+normalized, password min 8, tier from request validated free/pro/elite)
@@ -327,10 +369,11 @@ DELETE /plan/{id}           — delete draft plan
 POST /plan/{id}/adapt       — manual adaptation (pro/elite only, uses plan.tier_at_creation)
 GET  /plan/{id}/adaptations — adaptation history
 
-POST /session/{plan_id}/{week}/{day} — log session (rate-limited 10/min, week/day bounds validated, UNIQUE constraint)
-PUT  /session/{plan_id}/{week}/{day} — edit session (rate-limited 10/min, 24-hour window)
-GET  /session/{plan_id}              — list sessions (paginated)
-GET  /session/{plan_id}/{week}       — list week sessions
+POST /session/{plan_id}/{week}/{day}        — log session (rate-limited 10/min, week/day bounds validated, UNIQUE constraint)
+PUT  /session/{plan_id}/{week}/{day}        — edit session (rate-limited 10/min, 24-hour window)
+POST /session/{plan_id}/{week}/{day}/adjust — adjust session for available time (rate-limited 5/min, AI-powered)
+GET  /session/{plan_id}                     — list sessions (paginated)
+GET  /session/{plan_id}/{week}              — list week sessions
 
 POST /checkin/{plan_id}/{week}  — submit check-in (rate-limited 5/min, week bounds validated, UNIQUE constraint, atomic advance)
 GET  /checkin/{plan_id}         — list check-ins (paginated)
@@ -355,7 +398,7 @@ GET  /                 — health check
 /plan/loading                        — Plan generation with tier-specific progress messages
 /plan/[id]                           — Plan detail with export, preview/activate banner
 /dashboard                           — Main hub with logout, rest timer, next session, progress
-/session/[planId]/[week]/[day]       — Session logging with rest timer, confirmation, prev-week comparison
+/session/[planId]/[week]/[day]       — Session logging with rest timer, confirmation, prev-week comparison, time adjustment
 /checkin/[planId]/[week]             — Weekly check-in with labeled scales, confirmation modal
 /chat                                — Elite coach chat
 /settings                            — Profile editing (all V2 fields), change password, tier display, logout
@@ -378,7 +421,7 @@ GET  /                 — health check
 
 5. **Python 3.9.6** (not 3.11+ as spec'd): This is the system Python on macOS. All code works fine — `from __future__ import annotations` used in non-route files where `str | None` type unions appear. **IMPORTANT**: Do NOT add `from __future__ import annotations` to any file in `backend/routes/` — it breaks FastAPI's parameter resolution. Use `Optional[str]` instead.
 
-6. **`from __future__ import annotations`**: Used in `claude_client.py`, `test_research.py`, `plan_generator.py`, `tools/adapt.py`, `tools/collective.py`, `tools/chat.py`, `models/chat.py`, `models/adaptation.py`. **REMOVED from ALL route files** (onboarding, chat, session, checkin, collective, plan, auth, profile) — it breaks FastAPI's Pydantic body param detection. Use `Optional[str]` instead of `str | None` in route files.
+6. **`from __future__ import annotations`**: Used in `claude_client.py`, `test_research.py`, `plan_generator.py`, `tools/adapt.py`, `tools/collective.py`, `tools/chat.py`, `models/chat.py`, `models/adaptation.py`, and `routes/session.py` (safe: only helper function uses `list | None`, no Pydantic body models affected). **REMOVED from ALL other route files** (onboarding, chat, checkin, collective, plan, auth, profile) — it breaks FastAPI's Pydantic body param detection. Use `Optional[str]` instead of `str | None` in route files.
 
 7. **`research_for_profile` is synchronous**: Not async despite spec. The route handler is sync and SQLAlchemy session isn't async, so keeping it synchronous is correct.
 
@@ -392,7 +435,7 @@ GET  /                 — health check
 
 ---
 
-## File tree (65 source files as of 2026-04-14)
+## File tree (66 source files as of 2026-04-14)
 
 ```
 fitai/
@@ -416,7 +459,7 @@ fitai/
 │   ├── models/
 │   │   ├── __init__.py                # Re-exports Base, engine, get_db + all models
 │   │   ├── user.py                    # User: +sport_phase, +sport_weekly_hours (V2)
-│   │   ├── profile.py                 # Profile: +15 V2 columns (training_age_years, training_recency, goal_sub_category, body_fat_est, goal_deadline, injury_ortho_history, current_pain_level, chair_stand_proxy, overhead_reach_proxy, training_days_specific, exercise_blacklist, protein_intake_check, current_max_bench/squat/deadlift)
+│   │   ├── profile.py                 # Profile: +15 V2 columns + other_activities
 │   │   ├── research_cache.py, plan.py
 │   │   ├── session.py, checkin.py, adaptation.py, collective.py, chat.py
 │   ├── routes/
@@ -425,7 +468,7 @@ fitai/
 │   │   ├── profile.py                 # POST upsert (rate-limited, all V2 fields, StrengthBenchmark model, expanded validation), GET (returns all V2 fields)
 │   │   ├── plan.py                    # generate (rate-limited, concurrent lock), list, active, detail, confirm, delete, adapt (tier_at_creation), adaptations
 │   │   ├── research.py                # POST /test (rate-limited)
-│   │   ├── session.py                 # POST (rate-limited, week/day bounds, UNIQUE), PUT (rate-limited, 24h), GET list, GET week
+│   │   ├── session.py                 # POST (rate-limited, week/day bounds, UNIQUE), PUT (rate-limited, 24h), POST adjust (AI time adjustment, rate-limited 5/min), GET list, GET week
 │   │   ├── checkin.py                 # POST (rate-limited, week bounds, UNIQUE+IntegrityError, atomic advance), GET
 │   │   ├── collective.py              # POST donate (rate-limited, validated), GET stats
 │   │   ├── chat.py                    # POST (rate-limited, sanitized), GET (tier-gated)
@@ -439,13 +482,14 @@ fitai/
 │   │   └── chat.py                    # build_coach_context (sanitized notes), get_conversation_history, apply_chat_modifications
 │   ├── services/
 │   │   ├── __init__.py                # Empty
-│   │   └── claude_client.py           # ClaudeClient (V2 enriched research prompts + TRAINING_RULES block in plan prompts + adapt + chat + ONBOARDING_SYSTEM prompt + generate_onboarding_question, httpx timeout, retry guard, prompt caching)
+│   │   └── claude_client.py           # ClaudeClient (V2 enriched research prompts + TRAINING_RULES block (15 rules) in plan prompts + adapt + adjust_session + chat + ONBOARDING_SYSTEM prompt + generate_onboarding_question, httpx timeout, retry guard, prompt caching)
 │   └── migrations/
 │       ├── 001_phase1.sql             # All 8 CREATE TABLE statements (APPLIED)
 │       ├── 002_phase8_chat.sql        # chat_messages table + indexes (APPLIED)
 │       ├── 003_indexes_and_cascade.sql # 8 indexes + CASCADE constraints (APPLIED)
 │       ├── 004_unique_constraints_and_checks.sql # 3 UNIQUE + 3 CHECK constraints (APPLIED)
-│       └── 005_onboarding_v2.sql      # 15 profile columns + 2 user columns + 3 CHECK constraints (APPLIED)
+│       ├── 005_onboarding_v2.sql      # 15 profile columns + 2 user columns + 3 CHECK constraints (APPLIED)
+│       └── 006_other_activities.sql   # other_activities TEXT on profiles (NOT YET APPLIED)
 │
 ├── frontend/
 │   ├── .env.local                     # NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -470,7 +514,7 @@ fitai/
 │       │       ├── loading/page.tsx   # Plan generation: animated progress, 120s timeout, retry with attempt counter
 │       │       └── [id]/page.tsx      # Plan detail: preview/activate, export
 │       ├── components/
-│       │   ├── OnboardingChat.tsx     # V4: AI-driven onboarding, free-text goal, one-question-at-a-time, 10 field renderers, session recovery, 60s timeout, error fallback with retry, sessionStorage "fitai_onboarding_v4"
+│       │   ├── OnboardingChat.tsx     # V4: AI-driven onboarding, free-text goal, one-question-at-a-time, 10 field renderers (custom date picker, diet "other" text field), session recovery, 60s timeout, sessionStorage "fitai_onboarding_v4"
 │       │   ├── PlanView.tsx           # Collapsible day cards with exercises
 │       │   ├── NutritionPanel.tsx     # Training/rest day macros + empty state
 │       │   ├── PeriodizationBar.tsx   # Phase-colored week timeline with legend
@@ -494,8 +538,8 @@ fitai/
 - **Connection**: See `backend/.env` for full URL
 - **Tables**: users, profiles, research_cache, plans, sessions, weekly_checkins, collective_results, adaptation_log, chat_messages
 - **Test users in DB**: `test-hack@example.com` (free tier, has profile), `test-normal@example.com` (free tier, no profile) — created during security testing
-- **Migrations applied**: 001, 002, 003, 004, 005. All applied to Neon DB.
-- **profiles table**: 32 columns (17 original + 15 V2). **users table**: 10 columns (8 original + 2 V2).
+- **Migrations applied**: 001, 002, 003, 004, 005. All applied to Neon DB. **006 NOT YET APPLIED** (adds `other_activities TEXT` to profiles).
+- **profiles table**: 33 columns (17 original + 15 V2 + 1 other_activities). **users table**: 10 columns (8 original + 2 V2).
 
 ---
 

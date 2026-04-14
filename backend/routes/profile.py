@@ -55,6 +55,7 @@ class ProfileCreate(BaseModel):
     stress_level: int = Field(ge=1, le=10)
     job_activity: str
     diet_style: str
+    other_activities: Optional[str] = Field(default=None, max_length=300)
     sport: Optional[str] = Field(default=None, max_length=50)
     competition_date: Optional[str] = None
     # Onboarding V2 fields
@@ -93,6 +94,7 @@ class ProfileResponse(BaseModel):
     stress_level: Optional[int]
     job_activity: Optional[str]
     diet_style: Optional[str]
+    other_activities: Optional[str] = None
     sport: Optional[str] = None
     competition_date: Optional[str] = None
     # Onboarding V2 fields
@@ -147,7 +149,7 @@ def create_profile(body: ProfileCreate, request: Request, user: User = Depends(g
         raise HTTPException(status_code=400, detail=f"Invalid experience. Must be one of: {', '.join(VALID_EXPERIENCE)}")
     if body.job_activity not in VALID_JOB_ACTIVITY:
         raise HTTPException(status_code=400, detail=f"Invalid job_activity. Must be one of: {', '.join(VALID_JOB_ACTIVITY)}")
-    if body.diet_style not in VALID_DIET_STYLE:
+    if body.diet_style not in VALID_DIET_STYLE and not body.diet_style.startswith("other:") and not body.diet_style.startswith("other "):
         raise HTTPException(status_code=400, detail=f"Invalid diet_style. Must be one of: {', '.join(VALID_DIET_STYLE)}")
 
     # Validate optional enum fields (V2)
@@ -212,6 +214,7 @@ def create_profile(body: ProfileCreate, request: Request, user: User = Depends(g
         existing.stress_level = body.stress_level
         existing.job_activity = body.job_activity
         existing.diet_style = body.diet_style
+        existing.other_activities = body.other_activities
         # V2 fields
         existing.training_age_years = body.training_age_years
         existing.training_recency = body.training_recency
@@ -246,6 +249,7 @@ def create_profile(body: ProfileCreate, request: Request, user: User = Depends(g
             stress_level=body.stress_level,
             job_activity=body.job_activity,
             diet_style=body.diet_style,
+            other_activities=body.other_activities,
             # V2 fields
             training_age_years=body.training_age_years,
             training_recency=body.training_recency,
@@ -288,6 +292,7 @@ def create_profile(body: ProfileCreate, request: Request, user: User = Depends(g
         "stress_level": profile.stress_level,
         "job_activity": profile.job_activity,
         "diet_style": profile.diet_style,
+        "other_activities": profile.other_activities,
         "sport": user.sport,
         "competition_date": str(user.competition_date) if user.competition_date else None,
         # V2 fields
@@ -334,6 +339,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         stress_level=profile.stress_level,
         job_activity=profile.job_activity,
         diet_style=profile.diet_style,
+        other_activities=profile.other_activities,
         sport=user.sport,
         competition_date=str(user.competition_date) if user.competition_date else None,
         # V2 fields
