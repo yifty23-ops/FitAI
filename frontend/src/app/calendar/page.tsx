@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/auth";
 import { api } from "@/lib/api";
 import type { PeriodWeek, TrainingDay } from "@/components/PeriodizationBar";
+import { normalizeWeeks } from "@/lib/normalizeWeeks";
 
 interface ActivePlan {
   id: string;
@@ -17,20 +18,6 @@ interface SessionSummary {
   week_number: number;
   day_number: number;
   completed_at: string;
-}
-
-function normalizeWeeks(planData: Record<string, unknown>): PeriodWeek[] {
-  if (Array.isArray(planData.weeks)) return planData.weeks as PeriodWeek[];
-  if (
-    planData.plan &&
-    typeof planData.plan === "object" &&
-    Array.isArray((planData.plan as Record<string, unknown>).weeks)
-  ) {
-    return (planData.plan as Record<string, unknown>).weeks as PeriodWeek[];
-  }
-  if (Array.isArray(planData)) return planData as PeriodWeek[];
-  if (Array.isArray(planData.plan)) return planData.plan as PeriodWeek[];
-  return [];
 }
 
 export default function CalendarPage() {
@@ -82,7 +69,7 @@ export default function CalendarPage() {
   );
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20">
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         <button
           onClick={() => router.push("/dashboard")}
@@ -106,7 +93,7 @@ export default function CalendarPage() {
             return (
               <div
                 key={weekNum}
-                className={`bg-zinc-900 border rounded-xl p-4 ${
+                className={`bg-zinc-900 border rounded-2xl p-4 ${
                   isCurrent
                     ? "border-blue-600/50"
                     : "border-zinc-700"
@@ -162,7 +149,7 @@ export default function CalendarPage() {
                           }
                         }}
                         disabled={!isClickable}
-                        className={`flex-1 min-w-[80px] py-2 px-3 rounded-lg text-xs font-medium transition-colors ${
+                        className={`flex-1 min-w-[80px] py-2 px-3 rounded-xl text-xs font-medium transition-colors ${
                           isCompleted
                             ? "bg-green-900/30 border border-green-700/50 text-green-300"
                             : isCurrent

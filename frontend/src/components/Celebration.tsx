@@ -47,21 +47,6 @@ export default function Celebration({
         </p>
       </div>
 
-      <style>{`
-        @keyframes celebrationPulse {
-          0% { transform: scale(0.5); opacity: 0; }
-          60% { transform: scale(1.15); }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes celebrationCheck {
-          0% { opacity: 0; transform: scale(0.3); }
-          100% { opacity: 1; transform: scale(1); }
-        }
-        @keyframes celebrationFadeIn {
-          0% { opacity: 0; transform: translateY(8px); }
-          100% { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }

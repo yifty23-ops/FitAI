@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { saveToken, isLoggedIn } from "@/lib/auth";
-import { Tier, TIER_DISPLAY } from "@/lib/tiers";
+import { Tier, TIER_DISPLAY, TIER_UPGRADES } from "@/lib/tiers";
 
 interface AuthResponse {
   token: string;
@@ -21,6 +21,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<{ total_outcomes: number; sports_count: number } | null>(null);
+  const [hoveredFeature, setHoveredFeature] = useState<{ tier: Tier; featureIdx: number } | null>(null);
 
   useEffect(() => {
     if (isLoggedIn()) {
@@ -98,7 +99,7 @@ export default function Home() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="you@example.com"
             />
           </div>
@@ -113,7 +114,7 @@ export default function Home() {
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Min 8 characters"
             />
           </div>
@@ -125,7 +126,7 @@ export default function Home() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-medium transition-colors"
           >
             {loading ? "..." : mode === "signup" ? "Create Account" : "Log In"}
           </button>
@@ -137,15 +138,38 @@ export default function Home() {
           <h2 className="text-center text-lg font-semibold mb-4 text-zinc-300">
             Choose your coaching tier
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(["free", "pro", "elite"] as Tier[]).map((tier) => {
+          <div
+            className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4"
+            role="radiogroup"
+            aria-label="Choose your coaching tier"
+          >
+            {(["free", "pro", "elite"] as Tier[]).map((tier, idx) => {
               const display = TIER_DISPLAY[tier];
               const selected = selectedTier === tier;
+              const tiers: Tier[] = ["free", "pro", "elite"];
               return (
                 <button
                   key={tier}
                   type="button"
+                  role="radio"
+                  aria-checked={selected}
                   onClick={() => setSelectedTier(tier)}
+                  onKeyDown={(e) => {
+                    let newIdx = idx;
+                    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                      e.preventDefault();
+                      newIdx = (idx + 1) % tiers.length;
+                    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      newIdx = (idx - 1 + tiers.length) % tiers.length;
+                    } else {
+                      return;
+                    }
+                    setSelectedTier(tiers[newIdx]);
+                    const parent = e.currentTarget.parentElement;
+                    if (parent) (parent.children[newIdx] as HTMLElement).focus();
+                  }}
+                  tabIndex={selected ? 0 : -1}
                   className={`relative text-left p-5 rounded-xl border-2 transition-all ${
                     selected
                       ? "border-blue-500 bg-zinc-900"
@@ -162,12 +186,41 @@ export default function Home() {
                     <span className="text-zinc-400 text-sm">{display.price}</span>
                   </div>
                   <ul className="space-y-1.5">
-                    {display.features.map((f, i) => (
-                      <li key={i} className="text-sm text-zinc-400 flex items-start gap-2">
-                        <span className="text-blue-400 mt-0.5 shrink-0">&#10003;</span>
-                        {f}
-                      </li>
-                    ))}
+                    {display.features.map((f, i) => {
+                      const upgrade = tier !== "elite" ? TIER_UPGRADES[f] : undefined;
+                      const isHovered =
+                        hoveredFeature?.tier === tier && hoveredFeature?.featureIdx === i;
+                      return (
+                        <li
+                          key={i}
+                          className="text-sm text-zinc-400 flex flex-col gap-1"
+                          onMouseEnter={() => upgrade && setHoveredFeature({ tier, featureIdx: i })}
+                          onMouseLeave={() => setHoveredFeature(null)}
+                          onClick={(e) => {
+                            if (!upgrade) return;
+                            e.stopPropagation();
+                            setHoveredFeature((prev) =>
+                              prev?.tier === tier && prev?.featureIdx === i
+                                ? null
+                                : { tier, featureIdx: i }
+                            );
+                          }}
+                        >
+                          <span className="flex items-start gap-2">
+                            <span className="text-blue-400 mt-0.5 shrink-0">&#10003;</span>
+                            {f}
+                          </span>
+                          {isHovered && upgrade && (
+                            <span
+                              className="ml-6 text-xs px-2 py-1 bg-blue-900/50 text-blue-300 rounded-lg"
+                              style={{ animation: "tooltipFadeIn 150ms ease-out" }}
+                            >
+                              &uarr; {tier === "free" ? "Pro" : "Elite"}: {upgrade}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </button>
               );

@@ -166,8 +166,8 @@ export default function ChatPage() {
             and your goals. Available for Elite members only.
           </p>
           <a
-            href="/"
-            className="inline-block px-6 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg font-medium text-sm text-white transition-colors"
+            href="/settings"
+            className="inline-block px-6 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-xl font-medium text-sm text-white transition-colors"
           >
             Upgrade to Elite
           </a>
@@ -192,7 +192,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
+    <div className="flex flex-col h-screen bg-zinc-950 text-white pb-16">
       {/* Context header */}
       <div className="shrink-0 px-4 py-3 border-b border-zinc-800 bg-zinc-950">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
@@ -294,11 +294,15 @@ export default function ChatPage() {
             </div>
           )}
           {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
-          <div className="flex gap-2">
-            <input
-              type="text"
+          <div className="flex gap-2 items-end">
+            <textarea
+              rows={1}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = e.target.scrollHeight + "px";
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -307,7 +311,7 @@ export default function ChatPage() {
               }}
               placeholder="Ask your coach..."
               disabled={sending}
-              className="flex-1 px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="flex-1 px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 resize-none max-h-32 overflow-y-auto"
             />
             <button
               onClick={() => handleSend()}

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, fetchUserMe } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -9,6 +9,7 @@ import PlanView from "@/components/PlanView";
 import NutritionPanel, { type NutritionData } from "@/components/NutritionPanel";
 import PeriodizationBar, { type PeriodWeek } from "@/components/PeriodizationBar";
 import TierGate from "@/components/TierGate";
+import { normalizeWeeks } from "@/lib/normalizeWeeks";
 
 interface PlanDetail {
   id: string;
@@ -24,29 +25,7 @@ interface PlanDetail {
   is_active: boolean;
 }
 
-// --- Normalization helpers for AI-generated plan data ---
 
-function normalizeWeeks(planData: Record<string, unknown>): PeriodWeek[] {
-  // Try: { weeks: [...] }
-  if (Array.isArray(planData.weeks)) return planData.weeks as PeriodWeek[];
-
-  // Try: { plan: { weeks: [...] } }
-  if (
-    planData.plan &&
-    typeof planData.plan === "object" &&
-    Array.isArray((planData.plan as Record<string, unknown>).weeks)
-  ) {
-    return (planData.plan as Record<string, unknown>).weeks as PeriodWeek[];
-  }
-
-  // Try: top-level array
-  if (Array.isArray(planData)) return planData as PeriodWeek[];
-
-  // Try: { plan: [...] } (array directly under plan key)
-  if (Array.isArray(planData.plan)) return planData.plan as PeriodWeek[];
-
-  return [];
-}
 
 function normalizeNutrition(raw: Record<string, unknown>): NutritionData {
   return {
@@ -104,6 +83,12 @@ export default function PlanPage({
   const [userTier, setUserTier] = useState<Tier>("free");
   const [confirming, setConfirming] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const slideDirection = useRef<"left" | "right">("right");
+
+  function handleWeekSelect(week: number) {
+    slideDirection.current = week > selectedWeek ? "left" : "right";
+    setSelectedWeek(week);
+  }
 
   useEffect(() => {
     const user = getUser();
@@ -199,13 +184,13 @@ export default function PlanPage({
       : null;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20">
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         {/* Tier badge */}
         <TierBadge tier={tier} personaUsed={plan.persona_used ?? "Coach"} />
 
         {!plan.is_active && (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-3">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4 space-y-3">
             <div className="flex items-center gap-2">
               <span className="text-amber-500 text-xs bg-amber-900/30 px-2 py-0.5 rounded-full font-medium">
                 Preview
@@ -239,7 +224,7 @@ export default function PlanPage({
           <p className="text-zinc-500 text-xs">
             Upgrade to Pro for evidence-based research and longer mesocycles.{" "}
             <a
-              href="/"
+              href="/settings"
               className="text-blue-400 hover:text-blue-300 transition-colors"
             >
               Learn more
@@ -253,7 +238,7 @@ export default function PlanPage({
             weeks={weeks}
             currentWeek={plan.current_week}
             selectedWeek={selectedWeek}
-            onWeekSelect={setSelectedWeek}
+            onWeekSelect={handleWeekSelect}
             tier={tier}
             competitionDate={competitionDate}
           />
@@ -261,36 +246,40 @@ export default function PlanPage({
 
         {/* Rationale (pro/elite) */}
         {rationale && canUse(tier, "web_search") && (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
             <p className="text-zinc-400 text-sm">{rationale}</p>
           </div>
         )}
 
-        {/* Week heading */}
-        {currentWeekData && (
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">
-              Week {selectedWeek}
-              {currentWeekData.phase && (
-                <span className="text-zinc-400 font-normal text-sm ml-2">
-                  {currentWeekData.phase.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                </span>
-              )}
-            </h2>
-          </div>
-        )}
-
-        {/* Plan view */}
+        {/* Week heading + Plan view with slide animation */}
         {currentWeekData ? (
-          <PlanView week={currentWeekData} tier={tier} />
+          <div
+            key={selectedWeek}
+            className="space-y-4"
+            style={{
+              animation: `${slideDirection.current === "left" ? "slideInFromRight" : "slideInFromLeft"} 200ms ease-out`,
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">
+                Week {selectedWeek}
+                {currentWeekData.phase && (
+                  <span className="text-zinc-400 font-normal text-sm ml-2">
+                    {currentWeekData.phase.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                  </span>
+                )}
+              </h2>
+            </div>
+            <PlanView week={currentWeekData} tier={tier} />
+          </div>
         ) : weeks.length > 0 ? (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 text-center">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 text-center">
             <p className="text-zinc-400">
               Select a week above to view your training plan.
             </p>
           </div>
         ) : (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 text-center">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 text-center">
             <p className="text-zinc-400">
               No training data available for this plan.
             </p>

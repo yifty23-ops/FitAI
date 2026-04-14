@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/auth";
 import { api } from "@/lib/api";
+import ScoreSelector from "@/components/ScoreSelector";
 
 interface CheckinData {
   id: string;
@@ -15,58 +16,6 @@ interface CheckinData {
   weight_kg: number | null;
   notes: string | null;
   created_at: string;
-}
-
-function ScoreSelector({
-  label,
-  value,
-  onChange,
-  max,
-  disabled,
-  lowLabel,
-  highLabel,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  max: number;
-  disabled: boolean;
-  lowLabel?: string;
-  highLabel?: string;
-}) {
-  return (
-    <div>
-      <label className="text-zinc-300 text-sm font-medium block mb-2">
-        {label}
-      </label>
-      <div className="flex gap-1">
-        {Array.from({ length: max }, (_, i) => {
-          const n = i + 1;
-          return (
-            <button
-              key={n}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(n)}
-              className={`flex-1 h-9 rounded text-sm font-medium transition-colors ${
-                value === n
-                  ? "bg-blue-600 text-white"
-                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-              } disabled:opacity-50`}
-            >
-              {n}
-            </button>
-          );
-        })}
-      </div>
-      {(lowLabel || highLabel) && (
-        <div className="flex justify-between mt-1">
-          <span className="text-zinc-600 text-xs">{lowLabel}</span>
-          <span className="text-zinc-600 text-xs">{highLabel}</span>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function CheckinPage({
@@ -89,6 +38,25 @@ export default function CheckinPage({
   const [weightKg, setWeightKg] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // Escape key closes confirmation modal
+  useEffect(() => {
+    if (!showConfirm) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowConfirm(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [showConfirm]);
+
+  // Warn before navigating away with unsaved data
+  const hasCheckinData = recovery !== 5 || mood !== 5 || sleepAvg !== 7 || weightKg !== "" || notes !== "";
+  useEffect(() => {
+    if (!hasCheckinData || existing) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasCheckinData, existing]);
 
   useEffect(() => {
     const user = getUser();
@@ -144,7 +112,7 @@ export default function CheckinPage({
   // Read-only if already submitted
   if (existing) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="min-h-screen bg-zinc-950 text-white pb-20">
         <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
           <button
             onClick={() => router.push("/dashboard")}
@@ -155,14 +123,14 @@ export default function CheckinPage({
 
           <h1 className="text-xl font-semibold">Week {week} Check-in</h1>
 
-          <div className="bg-green-900/20 border border-green-700/50 rounded-xl p-3">
+          <div className="bg-green-900/20 border border-green-700/50 rounded-2xl p-3">
             <p className="text-green-300 text-sm font-medium">
               Submitted on{" "}
               {new Date(existing.created_at).toLocaleDateString()}
             </p>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-3">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4 space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-zinc-400">Recovery</span>
               <span className="text-white">{existing.recovery_score}/10</span>
@@ -193,10 +161,13 @@ export default function CheckinPage({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20">
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         <button
-          onClick={() => router.push("/dashboard")}
+          onClick={() => {
+            if (hasCheckinData && !existing && !confirm("You have unsaved check-in data. Leave?")) return;
+            router.push("/dashboard");
+          }}
           className="text-zinc-400 hover:text-white text-sm transition-colors"
         >
           &larr; Dashboard
@@ -234,13 +205,14 @@ export default function CheckinPage({
             </label>
             <input
               type="number"
+              inputMode="decimal"
               min={0}
               max={24}
               step={0.5}
               value={sleepAvg}
               onChange={(e) => setSleepAvg(parseFloat(e.target.value) || 0)}
               disabled={saving}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
             />
           </div>
 
@@ -251,13 +223,14 @@ export default function CheckinPage({
             <div className="relative">
               <input
                 type="number"
+                inputMode="decimal"
                 min={20}
                 max={500}
                 step={0.1}
                 value={weightKg}
                 onChange={(e) => setWeightKg(e.target.value)}
                 disabled={saving}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 pr-10 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 pr-10 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                 placeholder="e.g. 75.5"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">kg</span>
@@ -273,7 +246,7 @@ export default function CheckinPage({
               onChange={(e) => setNotes(e.target.value)}
               disabled={saving}
               rows={3}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
               placeholder="Anything notable this week..."
             />
           </div>
@@ -291,15 +264,22 @@ export default function CheckinPage({
 
         {/* Confirmation overlay */}
         {showConfirm && (
-          <div className="fixed inset-0 bg-black/60 flex items-end justify-center z-50 p-4">
+          <div
+            className="fixed inset-0 bg-black/60 flex items-end justify-center z-50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-checkin-title"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
+          >
             <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5 w-full max-w-md space-y-4">
-              <h3 className="text-white font-semibold text-lg">Submit check-in?</h3>
+              <h3 id="confirm-checkin-title" className="text-white font-semibold text-lg">Submit check-in?</h3>
               <div className="text-zinc-400 text-sm space-y-1">
                 <p>Recovery: {recovery}/10 &middot; Mood: {mood}/10</p>
                 <p>Sleep: {sleepAvg}h{weightKg ? ` \u00b7 Weight: ${weightKg}kg` : ""}</p>
               </div>
               <div className="flex gap-3">
                 <button
+                  autoFocus
                   onClick={() => setShowConfirm(false)}
                   className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl font-medium text-zinc-300 transition-colors"
                 >

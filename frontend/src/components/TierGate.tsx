@@ -22,7 +22,7 @@ export default function TierGate({
   const tierName = TIER_DISPLAY[requiredTier].name;
 
   return (
-    <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-xl p-5">
+    <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-2xl p-5">
       <div className="flex items-start gap-3">
         <svg
           className="w-5 h-5 text-zinc-500 mt-0.5 shrink-0"

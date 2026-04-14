@@ -102,7 +102,7 @@ export default function NutritionPanel({ nutrition }: NutritionPanelProps) {
   const hasData = nutrition.training_day || nutrition.rest_day;
   if (!hasData) {
     return (
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
         <p className="text-zinc-500 text-sm">
           Nutrition targets will appear when your plan includes macro guidance.
         </p>
@@ -111,7 +111,7 @@ export default function NutritionPanel({ nutrition }: NutritionPanelProps) {
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5">
+    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5">
       <h3 className="text-white font-semibold mb-4">Nutrition Targets</h3>
 
       <div className="flex gap-6">

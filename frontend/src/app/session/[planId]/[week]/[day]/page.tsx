@@ -1,12 +1,14 @@
 "use client";
 
-import { use, useEffect, useState, useCallback } from "react";
+import { use, useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/auth";
 import { api } from "@/lib/api";
 import RestTimer from "@/components/RestTimer";
 import Celebration from "@/components/Celebration";
 import type { PeriodWeek, TrainingDay, Exercise } from "@/components/PeriodizationBar";
+import ScoreSelector from "@/components/ScoreSelector";
+import { normalizeWeeks } from "@/lib/normalizeWeeks";
 
 interface PlanDetail {
   id: string;
@@ -41,70 +43,6 @@ interface SessionData {
   logged_exercises: LoggedExercise[] | null;
   notes: string | null;
   completed_at: string;
-}
-
-function normalizeWeeks(planData: Record<string, unknown>): PeriodWeek[] {
-  if (Array.isArray(planData.weeks)) return planData.weeks as PeriodWeek[];
-  if (
-    planData.plan &&
-    typeof planData.plan === "object" &&
-    Array.isArray((planData.plan as Record<string, unknown>).weeks)
-  ) {
-    return (planData.plan as Record<string, unknown>).weeks as PeriodWeek[];
-  }
-  if (Array.isArray(planData)) return planData as PeriodWeek[];
-  if (Array.isArray(planData.plan)) return planData.plan as PeriodWeek[];
-  return [];
-}
-
-function ScoreSelector({
-  label,
-  value,
-  onChange,
-  max,
-  disabled,
-  lowLabel,
-  highLabel,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  max: number;
-  disabled: boolean;
-  lowLabel?: string;
-  highLabel?: string;
-}) {
-  return (
-    <div>
-      <label className="text-zinc-400 text-xs block mb-1">{label}</label>
-      <div className="flex gap-1">
-        {Array.from({ length: max }, (_, i) => {
-          const n = i + 1;
-          return (
-            <button
-              key={n}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(n)}
-              className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
-                value === n
-                  ? "bg-blue-600 text-white"
-                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-              } disabled:opacity-50`}
-            >
-              {n}
-            </button>
-          );
-        })}
-      </div>
-      {(lowLabel || highLabel) && (
-        <div className="flex justify-between mt-0.5">
-          <span className="text-zinc-600 text-[10px]">{lowLabel}</span>
-          <span className="text-zinc-600 text-[10px]">{highLabel}</span>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function SessionPage({
@@ -147,6 +85,14 @@ export default function SessionPage({
   // Celebration
   const [showCelebration, setShowCelebration] = useState(false);
 
+  // Quick log mode
+  const [quickMode, setQuickMode] = useState(false);
+
+  // Swipe navigation
+  const [totalDays, setTotalDays] = useState(0);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+
   // Time adjustment
   const [planSessionMinutes, setPlanSessionMinutes] = useState(60);
   const [availableMinutes, setAvailableMinutes] = useState<number | null>(null);
@@ -154,6 +100,16 @@ export default function SessionPage({
   const [adjustedExercises, setAdjustedExercises] = useState<Exercise[] | null>(null);
   const [adjustSummary, setAdjustSummary] = useState("");
   const [adjustError, setAdjustError] = useState("");
+
+  // Escape key closes confirmation modal
+  useEffect(() => {
+    if (!showConfirm) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowConfirm(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [showConfirm]);
 
   useEffect(() => {
     const user = getUser();
@@ -211,6 +167,7 @@ export default function SessionPage({
         const weekData =
           weeks.find((w) => w.week_number === week) ?? weeks[week - 1] ?? null;
         const days = weekData?.days ?? [];
+        setTotalDays(days.length);
         const targetDay =
           days.find((d) => d.day_number === day) ?? days[day - 1] ?? null;
 
@@ -250,6 +207,17 @@ export default function SessionPage({
     field: keyof LoggedSet,
     value: number | null
   ) {
+    // Haptic feedback when a set transitions from incomplete to complete
+    const currentSet = exerciseLogs[exIdx]?.sets[setIdx];
+    if (currentSet) {
+      const newSet = { ...currentSet, [field]: value };
+      const wasComplete = currentSet.reps > 0 && currentSet.weight_kg > 0;
+      const isNowComplete = (newSet.reps ?? 0) > 0 && (newSet.weight_kg ?? 0) > 0;
+      if (!wasComplete && isNowComplete) {
+        navigator.vibrate?.(10);
+      }
+    }
+
     setExerciseLogs((prev) =>
       prev.map((ex, i) =>
         i === exIdx
@@ -348,6 +316,7 @@ export default function SessionPage({
           notes: notes || null,
         }),
       });
+      navigator.vibrate?.([50, 50, 50]);
       setShowCelebration(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save session.");
@@ -386,10 +355,45 @@ export default function SessionPage({
     ex.sets.some((s) => s.reps > 0 || s.weight_kg > 0)
   );
 
+  // Warn before navigating away with unsaved data
+  useEffect(() => {
+    if (!hasAnyData || existingSession || showCelebration) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasAnyData, existingSession, showCelebration]);
+
+  // Swipe navigation between training days
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    const deltaX = touchStartX.current - e.changedTouches[0].clientX;
+    const deltaY = touchStartY.current - e.changedTouches[0].clientY;
+
+    // Only act on horizontal swipes exceeding 50px that are more horizontal than vertical
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+
+    // Guard: confirm before navigating away with unsaved data
+    if (hasAnyData && !existingSession) {
+      if (!confirm("You have unsaved session data. Navigate away?")) return;
+    }
+
+    if (deltaX > 0 && day < totalDays) {
+      // Swiped left → next day
+      router.push(`/session/${planId}/${week}/${day + 1}`);
+    } else if (deltaX < 0 && day > 1) {
+      // Swiped right → previous day
+      router.push(`/session/${planId}/${week}/${day - 1}`);
+    }
+  }
+
   // Read-only view for already-logged sessions
   if (existingSession) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="min-h-screen bg-zinc-950 text-white pb-20" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
           <button
             onClick={() => router.push("/dashboard")}
@@ -402,7 +406,7 @@ export default function SessionPage({
             Week {week} &mdash; Day {day}
           </h1>
 
-          <div className="bg-green-900/20 border border-green-700/50 rounded-xl p-3 flex items-center justify-between">
+          <div className="bg-green-900/20 border border-green-700/50 rounded-2xl p-3 flex items-center justify-between">
             <p className="text-green-300 text-sm font-medium">
               Session logged on{" "}
               {new Date(existingSession.completed_at).toLocaleDateString()}
@@ -443,7 +447,7 @@ export default function SessionPage({
           </div>
 
           {existingSession.pre_readiness && (
-            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
               <h3 className="text-sm font-medium text-zinc-300 mb-2">Pre-Session Readiness</h3>
               <div className="flex gap-4 text-sm text-zinc-400">
                 <span>Sleep: {existingSession.pre_readiness.sleep}/10</span>
@@ -454,7 +458,7 @@ export default function SessionPage({
           )}
 
           {existingSession.logged_exercises?.map((ex, i) => (
-            <div key={i} className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+            <div key={i} className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
               <p className="text-white font-medium text-sm mb-2">{ex.name}</p>
               <div className="space-y-1">
                 {ex.sets.map((s, j) => (
@@ -468,7 +472,7 @@ export default function SessionPage({
           ))}
 
           {existingSession.notes && (
-            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
               <h3 className="text-sm font-medium text-zinc-300 mb-1">Notes</h3>
               <p className="text-zinc-400 text-sm">{existingSession.notes}</p>
             </div>
@@ -479,53 +483,78 @@ export default function SessionPage({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         <button
-          onClick={() => router.push("/dashboard")}
+          onClick={() => {
+            if (hasAnyData && !existingSession && !confirm("You have unsaved session data. Leave?")) return;
+            router.push("/dashboard");
+          }}
           className="text-zinc-400 hover:text-white text-sm transition-colors"
         >
           &larr; Dashboard
         </button>
 
-        <h1 className="text-xl font-semibold">
-          Week {week} &mdash; {dayData?.label ?? `Day ${day}`}
-        </h1>
-        {dayData?.focus && (
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">
+            Week {week} &mdash; {dayData?.label ?? `Day ${day}`}
+          </h1>
+          <button
+            type="button"
+            onClick={() => setQuickMode((q) => !q)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              quickMode
+                ? "bg-amber-600 text-white"
+                : "bg-zinc-800 text-zinc-400 hover:text-white"
+            }`}
+            title={quickMode ? "Switch to full view" : "Switch to quick log mode"}
+          >
+            {quickMode ? "Quick" : "Full"}
+          </button>
+        </div>
+        {totalDays > 1 && (
+          <div className="flex justify-between text-xs text-zinc-600">
+            {day > 1 ? <span>&larr; Day {day - 1}</span> : <span />}
+            {day < totalDays ? <span>Day {day + 1} &rarr;</span> : <span />}
+          </div>
+        )}
+        {!quickMode && dayData?.focus && (
           <p className="text-zinc-400 text-sm">{dayData.focus}</p>
         )}
 
         {/* Pre-readiness (optional) */}
-        <div className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowReadiness(!showReadiness)}
-            className="w-full flex items-center justify-between p-4 text-left hover:bg-zinc-800/50 transition-colors"
-          >
-            <div>
-              <span className="text-sm font-medium text-zinc-300">
-                Pre-Session Readiness
+        {!quickMode && (
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowReadiness(!showReadiness)}
+              className="w-full flex items-center justify-between p-4 text-left hover:bg-zinc-800/50 transition-colors"
+            >
+              <div>
+                <span className="text-sm font-medium text-zinc-300">
+                  Pre-Session Readiness
+                </span>
+                <span className="text-xs text-zinc-500 block">
+                  Quick 3-tap check — helps your coach adjust your plan
+                </span>
+              </div>
+              <span className="text-xs text-zinc-500">
+                {showReadiness ? "Hide" : "Expand"}
               </span>
-              <span className="text-xs text-zinc-500 block">
-                Quick 3-tap check — helps your coach adjust your plan
-              </span>
-            </div>
-            <span className="text-xs text-zinc-500">
-              {showReadiness ? "Hide" : "Expand"}
-            </span>
-          </button>
-          {showReadiness && (
-            <div className="px-4 pb-4 border-t border-zinc-800 space-y-3 pt-3">
-              <ScoreSelector label="Sleep quality" value={sleep} onChange={setSleep} max={10} disabled={saving} lowLabel="Terrible" highLabel="Amazing" />
-              <ScoreSelector label="Energy level" value={energy} onChange={setEnergy} max={10} disabled={saving} lowLabel="Depleted" highLabel="Energized" />
-              <ScoreSelector label="Soreness" value={soreness} onChange={setSoreness} max={10} disabled={saving} lowLabel="None" highLabel="Severe" />
-            </div>
-          )}
-        </div>
+            </button>
+            {showReadiness && (
+              <div className="px-4 pb-4 border-t border-zinc-800 space-y-3 pt-3">
+                <ScoreSelector label="Sleep quality" value={sleep} onChange={setSleep} max={10} disabled={saving} lowLabel="Terrible" highLabel="Amazing" />
+                <ScoreSelector label="Energy level" value={energy} onChange={setEnergy} max={10} disabled={saving} lowLabel="Depleted" highLabel="Energized" />
+                <ScoreSelector label="Soreness" value={soreness} onChange={setSoreness} max={10} disabled={saving} lowLabel="None" highLabel="Severe" />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Time adjustment */}
-        {!existingSession && (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+        {!quickMode && !existingSession && (
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
             <p className="text-sm font-medium text-zinc-300 mb-3">
               How much time do you have?
             </p>
@@ -567,7 +596,7 @@ export default function SessionPage({
                     type="button"
                     onClick={adjustTime}
                     disabled={adjusting}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-xl text-sm font-medium text-white transition-colors"
                   >
                     {adjusting ? "Adjusting..." : "Adjust"}
                   </button>
@@ -592,59 +621,63 @@ export default function SessionPage({
           return (
           <div
             key={`${planned.name}-${exIdx}`}
-            className={`bg-zinc-900 border rounded-xl p-4 space-y-3 transition-colors ${
+            className={`bg-zinc-900 border rounded-2xl p-4 space-y-3 transition-colors ${
               exHasData ? "border-green-700/60" : "border-zinc-700"
             }`}
           >
             <div>
               <p className="text-white font-medium text-sm">{planned.name}</p>
-              {prevData && !existingSession && (
+              {!quickMode && prevData && !existingSession && (
                 <p className="text-zinc-500 text-xs mt-0.5">
                   Last week: {prevData.weight_kg}kg x {prevData.reps}
                 </p>
               )}
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {planned.sets != null && planned.reps && (
-                  <span className="text-xs px-2 py-0.5 bg-zinc-800 rounded-full text-zinc-400">
-                    Prescribed: {planned.sets} &times; {planned.reps}
-                  </span>
-                )}
-                {planned.load_instruction && (
-                  <span className="text-xs px-2 py-0.5 bg-zinc-800 rounded-full text-zinc-400">
-                    {planned.load_instruction}
-                  </span>
-                )}
-              </div>
+              {!quickMode && (
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {planned.sets != null && planned.reps && (
+                    <span className="text-xs px-2 py-0.5 bg-zinc-800 rounded-full text-zinc-400">
+                      Prescribed: {planned.sets} &times; {planned.reps}
+                    </span>
+                  )}
+                  {planned.load_instruction && (
+                    <span className="text-xs px-2 py-0.5 bg-zinc-800 rounded-full text-zinc-400">
+                      {planned.load_instruction}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
-              <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 text-xs text-zinc-500">
+              <div className={`grid ${quickMode ? "grid-cols-[auto_1fr_1fr]" : "grid-cols-[auto_1fr_1fr_auto]"} gap-2 text-xs text-zinc-500`}>
                 <span>Set</span>
                 <span>Reps</span>
                 <span>Weight (kg)</span>
-                <span>RPE</span>
+                {!quickMode && <span>RPE</span>}
               </div>
               {exerciseLogs[exIdx]?.sets.map((s, setIdx) => (
                 <div
                   key={setIdx}
-                  className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center"
+                  className={`grid ${quickMode ? "grid-cols-[auto_1fr_1fr]" : "grid-cols-[auto_1fr_1fr_auto]"} gap-2 items-center`}
                 >
                   <span className="text-xs text-zinc-500 w-6 text-center">
                     {setIdx + 1}
                   </span>
                   <input
                     type="number"
+                    inputMode="numeric"
                     min={0}
                     value={s.reps || ""}
                     onChange={(e) =>
                       updateSet(exIdx, setIdx, "reps", parseInt(e.target.value, 10) || 0)
                     }
                     disabled={saving}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white w-full focus:outline-none focus:border-blue-500"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-2 py-1.5 text-sm text-white w-full focus:outline-none focus:border-blue-500"
                     placeholder="0"
                   />
                   <input
                     type="number"
+                    inputMode="decimal"
                     min={0}
                     step={0.5}
                     value={s.weight_kg || ""}
@@ -652,39 +685,41 @@ export default function SessionPage({
                       updateSet(exIdx, setIdx, "weight_kg", parseFloat(e.target.value) || 0)
                     }
                     disabled={saving}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white w-full focus:outline-none focus:border-blue-500"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-2 py-1.5 text-sm text-white w-full focus:outline-none focus:border-blue-500"
                     placeholder="0"
                   />
-                  <select
-                    value={s.rpe ?? ""}
-                    onChange={(e) =>
-                      updateSet(
-                        exIdx,
-                        setIdx,
-                        "rpe",
-                        e.target.value ? parseFloat(e.target.value) : null
-                      )
-                    }
-                    disabled={saving}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-1 py-1.5 text-sm text-white w-14 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="">-</option>
-                    {[6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
+                  {!quickMode && (
+                    <select
+                      value={s.rpe ?? ""}
+                      onChange={(e) =>
+                        updateSet(
+                          exIdx,
+                          setIdx,
+                          "rpe",
+                          e.target.value ? parseFloat(e.target.value) : null
+                        )
+                      }
+                      disabled={saving}
+                      className="bg-zinc-800 border border-zinc-700 rounded-xl px-1 py-1.5 text-sm text-white w-14 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="">-</option>
+                      {[6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               ))}
             </div>
 
             {/* Rest timer trigger */}
-            {exHasData && (
+            {!quickMode && exHasData && (
               <button
                 type="button"
                 onClick={() => startRestTimer(planned.rest_seconds)}
-                className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+                className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
               >
                 Start Rest ({planned.rest_seconds ?? 90}s)
               </button>
@@ -694,19 +729,21 @@ export default function SessionPage({
         })}
 
         {/* Notes */}
-        <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
-          <label className="text-sm font-medium text-zinc-300 block mb-2">
-            Session Notes
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            disabled={saving}
-            rows={3}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
-            placeholder="How did it go? Any observations..."
-          />
-        </div>
+        {!quickMode && (
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
+            <label className="text-sm font-medium text-zinc-300 block mb-2">
+              Session Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={saving}
+              rows={3}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 resize-none"
+              placeholder="How did it go? Any observations..."
+            />
+          </div>
+        )}
 
         {error && (
           <p className="text-red-400 text-sm">{error}</p>
@@ -725,14 +762,21 @@ export default function SessionPage({
 
         {/* Confirmation overlay */}
         {showConfirm && (
-          <div className="fixed inset-0 bg-black/60 flex items-end justify-center z-50 p-4">
+          <div
+            className="fixed inset-0 bg-black/60 flex items-end justify-center z-50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-session-title"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
+          >
             <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5 w-full max-w-md space-y-4">
-              <h3 className="text-white font-semibold text-lg">Submit session?</h3>
+              <h3 id="confirm-session-title" className="text-white font-semibold text-lg">Submit session?</h3>
               <p className="text-zinc-400 text-sm">
                 You logged {exerciseLogs.filter((ex) => ex.sets.some((s) => s.reps > 0 || s.weight_kg > 0)).length} of {exerciseLogs.length} exercises. This cannot be undone.
               </p>
               <div className="flex gap-3">
                 <button
+                  autoFocus
                   onClick={() => setShowConfirm(false)}
                   className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl font-medium text-zinc-300 transition-colors"
                 >

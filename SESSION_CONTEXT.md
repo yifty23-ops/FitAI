@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after 7-issue fix & feature sweep on 2026-04-14.
+> Updated after P3 UI enhancements implementation on 2026-04-14.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + Onboarding V4 + Bug Fixes + 7-Issue Sweep DEPLOYED
+## Current state: All core features + Onboarding V4 + Bug Fixes + 7-Issue Sweep + UI Audit Complete DEPLOYED
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -499,16 +499,16 @@ fitai/
 │   ├── CLAUDE.md                      # Points to AGENTS.md
 │   └── src/
 │       ├── app/
-│       │   ├── globals.css            # Tailwind base styles + print-friendly export styles
-│       │   ├── layout.tsx             # Root layout: system-ui font, FitAI metadata
+│       │   ├── globals.css            # Tailwind base + focus-visible + reduced-motion + celebration/slide/tooltip keyframes + print styles
+│       │   ├── layout.tsx             # Root layout: system-ui font, skip-to-content, <main> wrapper, BottomNav
 │       │   ├── error.tsx              # Global error boundary: retry + dashboard link
-│       │   ├── page.tsx               # Landing: login/signup + tier cards. Signup → /onboarding, login → /dashboard
+│       │   ├── page.tsx               # Landing: login/signup + tier cards + tier comparison tooltips. Signup → /onboarding, login → /dashboard
 │       │   ├── onboarding/page.tsx    # Auth gate → renders OnboardingChat with tier prop
 │       │   ├── chat/page.tsx          # Coach chat: elite-only
 │       │   ├── dashboard/page.tsx     # Dashboard: next session, week progress, quick actions
-│       │   ├── settings/page.tsx      # Settings V2: all profile fields (V2), strength benchmarks (Pro+), sport phase (Elite), change password, tier display, logout
+│       │   ├── settings/page.tsx      # Settings V2: collapsible <details> sections (Subscription→Account→Profile→Danger Zone), all profile fields (V2), strength benchmarks (Pro+), sport phase (Elite), change password, tier display, logout
 │       │   ├── calendar/page.tsx      # Training calendar: week-by-week
-│       │   ├── session/[planId]/[week]/[day]/page.tsx  # Session logging
+│       │   ├── session/[planId]/[week]/[day]/page.tsx  # Session logging + haptic, quick-log mode, swipe nav
 │       │   ├── checkin/[planId]/[week]/page.tsx         # Weekly check-in
 │       │   └── plan/
 │       │       ├── loading/page.tsx   # Plan generation: animated progress, 120s timeout, retry with attempt counter
@@ -518,15 +518,18 @@ fitai/
 │       │   ├── PlanView.tsx           # Collapsible day cards with exercises
 │       │   ├── NutritionPanel.tsx     # Training/rest day macros + empty state
 │       │   ├── PeriodizationBar.tsx   # Phase-colored week timeline with legend
-│       │   ├── TierGate.tsx           # Upgrade prompt linking to /settings
-│       │   ├── WeekProgressDots.tsx   # Filled/hollow dots for progress
+│       │   ├── TierGate.tsx           # Upgrade prompt linking to /settings (all upgrade links consistent)
+│       │   ├── WeekProgressDots.tsx   # Filled/hollow dots for progress + ARIA
 │       │   ├── RestTimer.tsx          # Fixed-bottom countdown timer
-│       │   └── Celebration.tsx        # Animated checkmark overlay
+│       │   ├── Celebration.tsx        # Animated checkmark overlay (keyframes in globals.css)
+│       │   ├── ScoreSelector.tsx      # Shared score selector: 36px touch targets, ARIA radiogroup
+│       │   └── BottomNav.tsx          # Persistent bottom nav: Home, Calendar, Settings (hidden on landing/onboarding/loading)
 │       └── lib/
 │           ├── auth.ts                # saveToken, getToken, clearToken, getUser, isLoggedIn, fetchUserMe
 │           ├── api.ts                 # api<T>() with Bearer auth, 30s timeout, LONG_TIMEOUT_MS export, FastAPI validation error extraction with field names
 │           ├── classifyGoal.ts        # Keyword regex maps free-text goal → enum (fat_loss/muscle/performance/wellness)
-│           └── tiers.ts              # TIER_FEATURES mirror, canUse(), validateTier(), TIER_DISPLAY
+│           ├── normalizeWeeks.ts      # Shared plan data normalizer (extracted from 4 pages)
+│           └── tiers.ts              # TIER_FEATURES mirror, canUse(), validateTier(), TIER_DISPLAY, TIER_UPGRADES
 
 ```
 
@@ -574,6 +577,65 @@ cd frontend && npm run build
 
 ---
 
+## UI Audit Fixes (2026-04-14) — ALL P0/P1/P2/P3 COMPLETE
+
+Comprehensive UX/UI audit (UI_AUDIT.md) identified 26 issues across P0-P3 severity. All P0, P1, P2, and P3 issues fixed (25 of 26 actionable items). Only P2 #14 (skeleton loaders) remains.
+
+### Completed (20 items)
+
+**P0 Critical (all 5 fixed):** Global focus-visible indicators, ScoreSelector touch targets (28px→36px), ScoreSelector deduplication (extracted to shared component), persistent bottom navigation (BottomNav.tsx), confirmation modal accessibility (ARIA dialog, Escape key, click-outside dismiss, autoFocus on safe button).
+
+**P1 High (7 of 7 fixed):** Tier cards keyboard-accessible radio group (arrow keys, aria-checked), prefers-reduced-motion respected, semantic HTML landmarks (`<main>`, skip-to-content), session page data-loss prevention (beforeunload + confirm), checkin page data-loss prevention, numeric inputMode for mobile keyboards, tier card badge clipping (mt-4), dead Geist font CSS removed.
+
+**P2 Medium (8 of 9 fixed):** Celebration inline styles moved to globals.css, normalizeWeeks extracted to shared lib (4 files→1), WeekProgressDots ARIA, chat textarea with auto-grow, upgrade link consistency (all → /settings), background darkened (#0a0a0a→#0f0f0f), border-radius standardized (cards=rounded-2xl, buttons/inputs=rounded-xl, pills=rounded-full — ~13 files, ~50 elements), settings page restructured (collapsible `<details>/<summary>` sections, reordered: Subscription→Account→Profile→Danger Zone, Account open by default, Profile collapsed).
+
+### Border-radius standard (Fix #13)
+
+Applied across all components and pages. The standard:
+- **Cards/containers**: `rounded-2xl` (16px)
+- **Buttons/inputs**: `rounded-xl` (12px)
+- **Pills/badges**: `rounded-full`
+- **Left alone**: RestTimer small controls (`rounded-lg`), ScoreSelector number buttons (`rounded-lg`), login toggle (`rounded-md`/`rounded-lg`), strength benchmark mini-inputs (`rounded-lg`), chat message bubbles (`rounded-2xl` already), modals (`rounded-2xl` already), PeriodizationBar week segments (`rounded-sm`)
+
+### Upgrade links standard (Fix #20)
+
+All upgrade CTAs now consistently link to `/settings`. Previously: TierGate and dashboard → `/settings`, chat/plan/loading → `/`. The audit suggested `/?upgrade=true` but that would be a bug — logged-in users on `page.tsx` are immediately redirected to `/dashboard` (losing the param). Settings page's own "Upgrade Plan" button removed (user is already on the page).
+
+### Settings page restructure (Fix #19)
+
+Sections reordered and wrapped in collapsible `<details>/<summary>`:
+1. **Subscription** (open by default) — tier badge, billing coming soon
+2. **Account** (open by default) — email, change password
+3. **Profile** (collapsed by default) — all V2 fields, save button
+4. **Danger Zone** (collapsed by default) — logout
+
+Each section has a chevron that rotates on expand (Tailwind v4 `group-open:rotate-180`).
+
+**P3 Suggestions (all 5 fixed):** Haptic feedback on set completion and session submit (#22), Quick Log mode toggle for session page (#25), swipe-to-navigate between training days (#23), animated week transitions in plan view (#24), tier comparison hover/tap tooltips on landing page (#26).
+
+### P3 Implementation Details (2026-04-14)
+
+| # | Enhancement | Files Modified |
+|---|-------------|---------------|
+| 22 | **Haptic feedback**: `navigator.vibrate?.(10)` on set completion (reps+weight both >0), `navigator.vibrate?.([50,50,50])` on session submit. No-op on iOS/desktop. Completion check runs OUTSIDE React state setter to avoid strict-mode double-invocation. | `session/[planId]/[week]/[day]/page.tsx` |
+| 25 | **Quick Log mode**: "Full"/"Quick" toggle in header. Quick mode hides: pre-readiness, time adjustment, prescribed pills, load instructions, RPE column, rest timer, notes. Grid switches from 4-col to 3-col. State preserved across toggles. | `session/[planId]/[week]/[day]/page.tsx` |
+| 23 | **Swipe navigation**: Horizontal swipe >50px navigates between days. Guard: `abs(deltaX) > abs(deltaY)` prevents vertical scroll interference. Confirms if unsaved data exists. Shows "Day N" indicators. Works on both logging and read-only views. | `session/[planId]/[week]/[day]/page.tsx` |
+| 24 | **Week slide animation**: 200ms CSS slide (24px translateX) when switching weeks. Direction-aware via `useRef`. `key={selectedWeek}` remount triggers animation. New `handleWeekSelect` wrapper passes direction then calls `setSelectedWeek`. Respects `prefers-reduced-motion`. | `plan/[id]/page.tsx`, `globals.css` |
+| 26 | **Tier comparison tooltips**: Hover (desktop) or tap (mobile) a Free/Pro feature to see what the next tier offers. `TIER_UPGRADES` mapping in `tiers.ts`. `e.stopPropagation()` prevents bubbling to parent tier-select button. Elite features show no tooltip. | `page.tsx`, `tiers.ts`, `globals.css` |
+
+### NOT Done (deferred)
+
+| # | Issue | Why deferred |
+|---|-------|-------------|
+| 14 | Loading spinners should be skeletons | Low impact, requires new components for each page |
+
+### New files created
+- `frontend/src/components/ScoreSelector.tsx` — shared score selector (ARIA radiogroup, 36px touch targets)
+- `frontend/src/components/BottomNav.tsx` — persistent bottom nav (Home/Calendar/Settings)
+- `frontend/src/lib/normalizeWeeks.ts` — shared plan data normalizer
+
+---
+
 ## Still missing / deferred
 
 These are known gaps documented in the improvement plan but not yet implemented:
@@ -610,3 +672,5 @@ These are known gaps documented in the improvement plan but not yet implemented:
 - Backward compatibility verified: injuries auto-populated from injury_ortho_history, days_per_week auto-derived from training_days_specific length
 - All frontend pages return HTTP 200 (/onboarding, /settings, /dashboard, /plan/loading, etc.)
 - **Browser testing of V3 AI-driven onboarding PENDING** — backend endpoint and frontend component verified (imports, build, routes), but full interactive flow with Claude API needs manual browser walkthrough with valid ANTHROPIC_API_KEY
+- Frontend builds with zero TypeScript errors after P3 enhancements (verified 2026-04-14), all 10 pages generate
+- **Browser testing of P3 enhancements PENDING** — haptic (Android only), swipe nav, quick-log toggle, week slide animation, tier comparison tooltips all need manual verification

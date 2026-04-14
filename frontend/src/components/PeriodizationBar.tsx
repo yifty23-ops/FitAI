@@ -94,7 +94,7 @@ export default function PeriodizationBar({
   const groups = groupPhases(weeks);
 
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-white font-semibold text-sm">Mesocycle Overview</h3>
         {competitionDate && (

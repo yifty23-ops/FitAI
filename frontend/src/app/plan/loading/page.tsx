@@ -183,7 +183,7 @@ export default function PlanLoadingPage() {
 
             {error.includes("limit") ? (
               <a
-                href="/"
+                href="/settings"
                 className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
               >
                 Upgrade your plan &rarr;

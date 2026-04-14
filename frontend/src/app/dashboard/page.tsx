@@ -8,6 +8,7 @@ import { canUse, type Tier } from "@/lib/tiers";
 import TierGate from "@/components/TierGate";
 import WeekProgressDots from "@/components/WeekProgressDots";
 import type { PeriodWeek, TrainingDay } from "@/components/PeriodizationBar";
+import { normalizeWeeks } from "@/lib/normalizeWeeks";
 
 interface ActivePlan {
   id: string;
@@ -53,20 +54,6 @@ interface AdaptationSummary {
     plateau_detected: boolean;
   };
   created_at: string;
-}
-
-function normalizeWeeks(planData: Record<string, unknown>): PeriodWeek[] {
-  if (Array.isArray(planData.weeks)) return planData.weeks as PeriodWeek[];
-  if (
-    planData.plan &&
-    typeof planData.plan === "object" &&
-    Array.isArray((planData.plan as Record<string, unknown>).weeks)
-  ) {
-    return (planData.plan as Record<string, unknown>).weeks as PeriodWeek[];
-  }
-  if (Array.isArray(planData)) return planData as PeriodWeek[];
-  if (Array.isArray(planData.plan)) return planData.plan as PeriodWeek[];
-  return [];
 }
 
 const TIER_BADGE_STYLES: Record<string, string> = {
@@ -193,7 +180,7 @@ export default function DashboardPage() {
   const badgeStyle = TIER_BADGE_STYLES[tier] ?? TIER_BADGE_STYLES.free;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20">
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -218,7 +205,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Week info */}
-        <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+        <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium text-zinc-300">
               Week {plan.current_week} of {plan.mesocycle_weeks}
@@ -238,15 +225,15 @@ export default function DashboardPage() {
 
         {/* Free tier banner */}
         {userTier === "free" && (
-          <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-xl p-4">
+          <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-2xl p-4">
             <p className="text-zinc-400 text-sm">
               You&apos;re using the free plan. Upgrade for AI-powered weekly
               adaptations.{" "}
               <a
-                href="/"
+                href="/settings"
                 className="text-blue-400 hover:text-blue-300 transition-colors"
               >
-                Learn more
+                Upgrade
               </a>
             </p>
           </div>
@@ -254,7 +241,7 @@ export default function DashboardPage() {
 
         {/* Milestone donation card */}
         {plan.milestone_pending && canUse(userTier, "collective") && !milestoneDismissed && (
-          <div className="bg-purple-900/20 border border-purple-700/50 rounded-xl p-4 space-y-3">
+          <div className="bg-purple-900/20 border border-purple-700/50 rounded-2xl p-4 space-y-3">
             <h3 className="text-sm font-medium text-purple-300">
               3-Week Milestone!
             </h3>
@@ -266,7 +253,7 @@ export default function DashboardPage() {
                 <button
                   key={star}
                   onClick={() => setMilestoneRating(star)}
-                  className={`w-10 h-10 rounded-lg text-lg font-medium transition-colors ${
+                  className={`w-10 h-10 rounded-xl text-lg font-medium transition-colors ${
                     milestoneRating >= star
                       ? "bg-purple-600 text-white"
                       : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700"
@@ -281,7 +268,7 @@ export default function DashboardPage() {
               onChange={(e) => setMilestoneNotes(e.target.value)}
               placeholder="Any notes? (optional)"
               rows={2}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
             />
             <button
               onClick={async () => {
@@ -304,7 +291,7 @@ export default function DashboardPage() {
                 }
               }}
               disabled={!milestoneRating || donating}
-              className={`w-full py-2.5 rounded-lg font-medium text-sm transition-colors ${
+              className={`w-full py-2.5 rounded-xl font-medium text-sm transition-colors ${
                 milestoneRating && !donating
                   ? "bg-purple-600 hover:bg-purple-500 text-white"
                   : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
@@ -317,7 +304,7 @@ export default function DashboardPage() {
 
         {/* Today's session card */}
         {nextDay && !allSessionsDone ? (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4">
             <h3 className="text-sm font-medium text-zinc-400 mb-2">
               Next Session
             </h3>
@@ -345,7 +332,7 @@ export default function DashboardPage() {
             </button>
           </div>
         ) : allSessionsDone && !currentWeekCheckin ? (
-          <div className="bg-zinc-900 border border-blue-700/50 rounded-xl p-4">
+          <div className="bg-zinc-900 border border-blue-700/50 rounded-2xl p-4">
             <h3 className="text-sm font-medium text-blue-400 mb-1">
               All sessions complete!
             </h3>
@@ -356,19 +343,19 @@ export default function DashboardPage() {
               onClick={() =>
                 router.push(`/checkin/${plan.id}/${plan.current_week}`)
               }
-              className="mt-3 w-full py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium text-sm text-white transition-colors"
+              className="mt-3 w-full py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium text-sm text-white transition-colors"
             >
               Weekly Check-in
             </button>
           </div>
         ) : allSessionsDone && currentWeekCheckin ? (
-          <div className="bg-green-900/20 border border-green-700/50 rounded-xl p-4">
+          <div className="bg-green-900/20 border border-green-700/50 rounded-2xl p-4">
             <p className="text-green-300 text-sm font-medium">
               Week {plan.current_week} complete! Great work.
             </p>
           </div>
         ) : (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 text-center">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4 text-center">
             <p className="text-zinc-400 text-sm">
               No training days found for this week.
             </p>
@@ -379,7 +366,7 @@ export default function DashboardPage() {
         {adaptations.length > 0 && canUse(userTier, "adaptation") && (() => {
           const latest = adaptations[0];
           return (
-            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-3">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-white">
                   Week {latest.week_number} Adaptation
@@ -443,7 +430,7 @@ export default function DashboardPage() {
           {/* View full plan */}
           <button
             onClick={() => router.push(`/plan/${plan.id}`)}
-            className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl p-3 hover:bg-zinc-800/50 transition-colors"
+            className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-2xl p-3 hover:bg-zinc-800/50 transition-colors"
           >
             <span className="text-sm text-white">View Full Plan</span>
             <span className="text-xs text-zinc-500 ml-2">
@@ -454,7 +441,7 @@ export default function DashboardPage() {
           {/* Calendar view */}
           <button
             onClick={() => router.push("/calendar")}
-            className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl p-3 hover:bg-zinc-800/50 transition-colors"
+            className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-2xl p-3 hover:bg-zinc-800/50 transition-colors"
           >
             <span className="text-sm text-white">Training Calendar</span>
             <span className="text-xs text-zinc-500 ml-2">
@@ -464,7 +451,7 @@ export default function DashboardPage() {
 
           {/* Log a past session */}
           {days.length > 0 && (
-            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-3">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-3">
               <span className="text-sm text-white block mb-2">
                 Log a Past Session
               </span>
@@ -481,7 +468,7 @@ export default function DashboardPage() {
                         )
                       }
                       disabled={done}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
                         done
                           ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                           : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
@@ -502,7 +489,7 @@ export default function DashboardPage() {
               onClick={() =>
                 router.push(`/checkin/${plan.id}/${plan.current_week}`)
               }
-              className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl p-3 hover:bg-zinc-800/50 transition-colors"
+              className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-2xl p-3 hover:bg-zinc-800/50 transition-colors"
             >
               <span className="text-sm text-white">Weekly Check-in</span>
               <span className="text-xs text-zinc-500 ml-2">
@@ -531,7 +518,7 @@ export default function DashboardPage() {
                 }
               }}
               disabled={adapting || plan.current_week <= 1}
-              className={`w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl p-3 transition-colors ${
+              className={`w-full text-left bg-zinc-900 border border-zinc-700 rounded-2xl p-3 transition-colors ${
                 adapting || plan.current_week <= 1
                   ? "opacity-50 cursor-not-allowed"
                   : "hover:bg-zinc-800/50"
@@ -563,7 +550,7 @@ export default function DashboardPage() {
           {/* Profile & Settings */}
           <button
             onClick={() => router.push("/settings")}
-            className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl p-3 hover:bg-zinc-800/50 transition-colors"
+            className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-2xl p-3 hover:bg-zinc-800/50 transition-colors"
           >
             <span className="text-sm text-white">Profile &amp; Settings</span>
             <span className="text-xs text-zinc-500 ml-2">
@@ -575,7 +562,7 @@ export default function DashboardPage() {
           {canUse(userTier, "coach_chat") ? (
             <button
               onClick={() => router.push("/chat")}
-              className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl p-3 hover:bg-zinc-800/50 transition-colors"
+              className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-2xl p-3 hover:bg-zinc-800/50 transition-colors"
             >
               <span className="text-sm text-white">Chat with Coach</span>
               <span className="text-xs text-zinc-500 ml-2">

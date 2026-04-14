@@ -88,3 +88,18 @@ export const TIER_DISPLAY: Record<Tier, TierDisplay> = {
     ],
   },
 };
+
+// Maps features to what the next tier up offers
+export const TIER_UPGRADES: Record<string, string> = {
+  // Free → Pro
+  "1 plan per month": "Unlimited plans",
+  "4-week training blocks": "8-12 week periodized mesocycles",
+  "Certified trainer persona": "World-class S&C coach persona",
+  "Based on training principles": "Evidence-based research (PubMed)",
+  // Pro → Elite
+  "8-12 week periodized mesocycles": "Up to 16-week mesocycles",
+  "World-class S&C coach persona": "Sport-specific Olympic-level coach",
+  "Evidence-based research (PubMed)": "Deep sport research",
+  "Weekly plan adaptation": "On-demand adaptation",
+  "Collective learning insights": "Competition peaking model",
+};

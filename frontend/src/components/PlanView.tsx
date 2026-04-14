@@ -95,7 +95,7 @@ function DayCard({
   const focus = day.focus ?? "";
 
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden">
+    <div className="bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between p-4 text-left hover:bg-zinc-800/50 transition-colors"
@@ -147,7 +147,7 @@ export default function PlanView({ week, tier }: PlanViewProps) {
 
   if (days.length === 0) {
     return (
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 text-center">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 text-center">
         <p className="text-zinc-400">No training days for this week.</p>
       </div>
     );
