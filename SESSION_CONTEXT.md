@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after Onboarding V2 deployment on 2026-04-14.
+> Updated after Onboarding V4 UX Redesign on 2026-04-14.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + Onboarding V2 DEPLOYED
+## Current state: All core features + AI-Driven Onboarding V3 DEPLOYED
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -121,6 +121,80 @@ Plus 4 elite-specific rules: in-season 60% volume reduction, sport hours as tota
 
 ---
 
+## Onboarding V4 UX Redesign (2026-04-14) — DEPLOYED
+
+### What changed and why
+
+V3 had two problems: (1) the first question was a generic 4-card goal picker that didn't capture nuance or sport context, and (2) the UI looked clinical and cluttered — conversation history stacked up creating noise, progress dots were meaningless, field renderers looked like form widgets, and there was no visual warmth.
+
+V4 replaces the goal picker with a free-text input ("What are you training for?"), redesigns the layout to show one question at a time with no history visible, adds tier-aware questioning depth so the AI collects exactly what it needs for each tier's plan quality, and upgrades all 10 field renderers with polished interactions.
+
+### Architecture
+
+```
+User types goal in free text ("Get stronger for swimming")
+  → Frontend classifies to enum (fat_loss/muscle/performance/wellness) via keyword regex
+  → Frontend sends { goal, goal_description, tier } to POST /onboarding/next-question
+  → Claude reads goal_description to personalize questions, uses tier-aware depth rules
+  → Claude returns structured question JSON (field types, options, validation)
+  → Frontend renders one question at a time (sticky header/footer, centered content)
+  → AI decides when done — free ~5-7 questions, pro ~7-10, elite ~8-12
+  → Frontend submits to existing POST /profile (no schema changes)
+```
+
+### Files modified/created (4 total)
+
+| File | Change |
+|------|--------|
+| `frontend/src/lib/classifyGoal.ts` | **NEW FILE**. Keyword regex maps free-text goal to enum (fat_loss/muscle/performance/wellness). |
+| `frontend/src/components/OnboardingChat.tsx` | **FULL REWRITE** (~650 lines). Welcome screen with free-text goal + suggestion chips. One-question-at-a-time layout. Sticky header (back + progress bar) + sticky footer (continue). 10 upgraded field renderers. Auto-advance on single-field steps. Fade-slide-up animations. Session key `fitai_onboarding_v4`. |
+| `frontend/src/app/globals.css` | Added `fadeSlideUp` and `fadeIn` keyframe animations. |
+| `backend/services/claude_client.py` | `ONBOARDING_SYSTEM` updated: goal marked as pre-collected, `goal_description` support, RULES replaced with TIER-AWARE QUESTIONING DEPTH. `generate_onboarding_question()` includes goal_description in user prompt. |
+
+### Tier-aware questioning depth
+
+The AI decides when it has enough information — no arbitrary cap. Depth scales with tier:
+
+- **Free**: Required fields + 1-2 useful optionals. 5-7 questions. Groups 2-4 fields. Brisk.
+- **Pro**: Required + actively pursue optionals (training history, body comp, pain/mobility). 7-10 questions. Groups 2-3.
+- **Elite**: Everything relevant — sport phase, competition dates, weekly hours, strength benchmarks, weak points. 8-12 questions. Groups 1-3. Olympic-caliber profiling.
+
+### UX design
+
+- **Welcome screen**: "What are you training for?" + free-text textarea with rotating placeholders + 4 suggestion chips + "Let's go" gradient button
+- **Question flow**: One question at a time, no conversation history shown (data kept for back navigation)
+- **Sticky header**: Back chevron (44px touch target) + gradient progress bar (blue→cyan) + "Step N"
+- **Sticky footer**: Continue button always visible, iOS safe-area padding
+- **Animations**: fadeSlideUp on question transitions, staggered field appearance, contextual loading messages
+- **Auto-advance**: 350ms delay on single-field single_select and yes_no steps
+- **Soft safety valve**: "Finish setup" link at 20 questions (not forced)
+
+### Field renderer upgrades
+
+| Type | V3 | V4 |
+|------|----|----|
+| `single_select` | Plain card/pill buttons | Left accent bars, glow selection, auto-advance |
+| `multi_select` | Pill row with text checkmarks | 2-column grid with SVG checkmarks, bodyweight toggle |
+| `number` | Plain HTML number input | Large centered display + round stepper buttons (hold-to-repeat) |
+| `text` | Basic input | Large rounded, auto-focus, Enter to submit |
+| `textarea` | Text area + char count text | Auto-resize + color-coded progress bar |
+| `slider` | Plain range with accent-blue | Custom gradient track + floating value bubble + stress color coding |
+| `date` | Basic date input | Rounded container, same native picker |
+| `day_picker` | Small pills in row | Round circles with glow, day count below |
+| `yes_no` | Two small pills | Large two-card layout, green "Yes" tint, auto-advance |
+| `strength_benchmarks` | Dense inline inputs | Three stacked cards per lift, centered inputs |
+
+### What stays the same
+
+- `POST /profile` endpoint unchanged — final submission uses same `ProfileCreate` schema
+- `POST /onboarding/next-question` endpoint unchanged — same request/response schema
+- Profile database model unchanged — no new columns
+- Research prompts, plan generation, training rules, adaptation — all unchanged
+- Settings page still allows editing all V2 profile fields
+- 3-layer completeness safety net unchanged
+
+---
+
 ## Security & Bug Fix Sweep (2026-04-13) — Full Details
 
 ### CRITICAL fixes (all applied and verified)
@@ -207,7 +281,7 @@ def my_route(request: Request, body: MyModel, ...):
 
 ---
 
-### API routes (31 route-methods as of 2026-04-14)
+### API routes (32 route-methods as of 2026-04-14)
 
 ```
 POST /auth/signup           — register (rate-limited 3/min, email validated+normalized, password min 8, tier always "free")
@@ -242,6 +316,8 @@ GET  /collective/stats            — public stats
 POST /chat/            — send chat (elite only, rate-limited 10/min, max 5000 chars, message sanitized)
 GET  /chat/{plan_id}   — chat history (elite only, paginated)
 
+POST /onboarding/next-question — AI-driven onboarding question generation (rate-limited 10/min, completeness safety net)
+
 POST /research/test    — test research (rate-limited 2/min)
 GET  /                 — health check
 ```
@@ -250,7 +326,7 @@ GET  /                 — health check
 
 ```
 /                                    — Landing: login/signup + tier cards
-/onboarding                          — Onboarding wizard V2 (8-step, sessionStorage persisted as fitai_onboarding_v2)
+/onboarding                          — AI-driven onboarding V3 (dynamic questions from Claude, sessionStorage persisted as fitai_onboarding_v3)
 /plan/loading                        — Plan generation with tier-specific progress messages
 /plan/[id]                           — Plan detail with export, preview/activate banner
 /dashboard                           — Main hub with logout, rest timer, next session, progress
@@ -291,7 +367,7 @@ GET  /                 — health check
 
 ---
 
-## File tree (64 source files as of 2026-04-14)
+## File tree (65 source files as of 2026-04-14)
 
 ```
 fitai/
@@ -327,7 +403,8 @@ fitai/
 │   │   ├── session.py                 # POST (rate-limited, week/day bounds, UNIQUE), PUT (rate-limited, 24h), GET list, GET week
 │   │   ├── checkin.py                 # POST (rate-limited, week bounds, UNIQUE+IntegrityError, atomic advance), GET
 │   │   ├── collective.py              # POST donate (rate-limited, validated), GET stats
-│   │   └── chat.py                    # POST (rate-limited, sanitized), GET (tier-gated)
+│   │   ├── chat.py                    # POST (rate-limited, sanitized), GET (tier-gated)
+│   │   └── onboarding.py             # POST /next-question (AI-driven onboarding, rate-limited 10/min, completeness safety net)
 │   ├── tools/
 │   │   ├── __init__.py                # Empty
 │   │   ├── research.py                # sanitize_for_prompt(), compute_profile_hash (V2 fields in key), profile_to_research_dict (30+ fields), research_for_profile, _attach_collective
@@ -337,7 +414,7 @@ fitai/
 │   │   └── chat.py                    # build_coach_context (sanitized notes), get_conversation_history, apply_chat_modifications
 │   ├── services/
 │   │   ├── __init__.py                # Empty
-│   │   └── claude_client.py           # ClaudeClient (V2 enriched research prompts + TRAINING_RULES block in plan prompts + adapt + chat, httpx timeout, retry guard)
+│   │   └── claude_client.py           # ClaudeClient (V2 enriched research prompts + TRAINING_RULES block in plan prompts + adapt + chat + ONBOARDING_SYSTEM prompt + generate_onboarding_question, httpx timeout, retry guard, prompt caching)
 │   └── migrations/
 │       ├── 001_phase1.sql             # All 8 CREATE TABLE statements (APPLIED)
 │       ├── 002_phase8_chat.sql        # chat_messages table + indexes (APPLIED)
@@ -368,7 +445,7 @@ fitai/
 │       │       ├── loading/page.tsx   # Plan generation: animated progress, 120s timeout, retry with attempt counter
 │       │       └── [id]/page.tsx      # Plan detail: preview/activate, export
 │       ├── components/
-│       │   ├── OnboardingChat.tsx     # V2: 8-step wizard (6 non-elite), CardButton/PillButton helpers, strength benchmarks, mobility proxies, weekday picker, exercise blacklist, sessionStorage key "fitai_onboarding_v2"
+│       │   ├── OnboardingChat.tsx     # V3: AI-driven dynamic onboarding (Claude generates questions), 10 field type renderers, CardButton/PillButton helpers, conversation history, back support, sessionStorage key "fitai_onboarding_v3", 15-question hard cap
 │       │   ├── PlanView.tsx           # Collapsible day cards with exercises
 │       │   ├── NutritionPanel.tsx     # Training/rest day macros + empty state
 │       │   ├── PeriodizationBar.tsx   # Phase-colored week timeline with legend
@@ -447,8 +524,8 @@ These are known gaps documented in the improvement plan but not yet implemented:
 
 ## What has been tested locally (2026-04-14)
 
-- Backend starts cleanly with 31 routes (verified after Onboarding V2 changes)
-- Frontend builds with zero TypeScript errors, all 11 pages generate (verified after Onboarding V2 changes)
+- Backend starts cleanly with 32 routes (verified after AI-Driven Onboarding V3 — includes POST /onboarding/next-question)
+- Frontend builds with zero TypeScript errors, all 11 pages generate (verified after Onboarding V3 rewrite)
 - Signup: tier spoofing blocked (sends `elite`, gets `free`)
 - Login: email normalization works (`" TEST-HACK@EXAMPLE.COM "` matches lowercase DB entry)
 - Profile: age=-5 rejected (ge=13), goal="INJECT_HACK" rejected (enum validation)
@@ -462,4 +539,4 @@ These are known gaps documented in the improvement plan but not yet implemented:
 - GET /profile returns all 34 fields including V2 data
 - Backward compatibility verified: injuries auto-populated from injury_ortho_history, days_per_week auto-derived from training_days_specific length
 - All frontend pages return HTTP 200 (/onboarding, /settings, /dashboard, /plan/loading, etc.)
-- **Browser testing of V2 onboarding UI PENDING** — API layer verified end-to-end, visual/interactive flow needs manual browser walkthrough
+- **Browser testing of V3 AI-driven onboarding PENDING** — backend endpoint and frontend component verified (imports, build, routes), but full interactive flow with Claude API needs manual browser walkthrough with valid ANTHROPIC_API_KEY

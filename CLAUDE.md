@@ -153,7 +153,7 @@ fitai/
 │   │   ├── session/[planId]/[week]/[day]/page.tsx  # session logging with rest timer
 │   │   └── checkin/[planId]/[week]/page.tsx         # weekly check-in
 │   ├── components/
-│   │   ├── OnboardingChat.tsx          # 7-step wizard with sessionStorage persistence
+│   │   ├── OnboardingChat.tsx          # AI-driven dynamic onboarding (V3), 10 field type renderers
 │   │   ├── PlanView.tsx                # week-by-week plan display
 │   │   ├── NutritionPanel.tsx          # macro targets display with empty state
 │   │   ├── PeriodizationBar.tsx        # visual arc of mesocycle phases with legend
@@ -182,6 +182,7 @@ fitai/
 │   │   ├── plan.py                     # generate, list, active, detail, confirm, delete, adapt, adaptations
 │   │   ├── session.py                  # POST create, PUT edit (24h), GET list, GET week
 │   │   ├── checkin.py                  # POST (with row-lock), GET + maybe_advance_week
+│   │   ├── onboarding.py               # POST /next-question (AI-driven onboarding, completeness safety net)
 │   │   ├── collective.py, chat.py, research.py
 │   ├── tools/
 │   │   ├── __init__.py
@@ -192,7 +193,7 @@ fitai/
 │   │   └── chat.py                    # coach chat context + modifications
 │   ├── services/
 │   │   ├── __init__.py
-│   │   └── claude_client.py            # ClaudeClient with httpx timeout
+│   │   └── claude_client.py            # ClaudeClient with httpx timeout + onboarding question generation
 │   ├── migrations/
 │   │   ├── 001_phase1.sql
 │   │   ├── 002_phase8_chat.sql
@@ -567,33 +568,56 @@ GOOD for swimming: {{"label": "Pull-Dominant + Rotational Core", "focus": "lat s
 
 ---
 
-## Onboarding flow — tier-aware
+## Onboarding flow — AI-driven (V4)
+
+The onboarding is fully AI-driven with a free-text goal input and tier-aware questioning depth.
 
 ```
-All tiers — Steps 1-5 (same as before):
-  1. Goal selection
-  2. Body stats
-  3. Training experience + injuries
-  4. Schedule + equipment
-  5. Lifestyle
-
-Elite tier ONLY — Steps 6-7 (added after step 5):
-  6. "What sport do you train for?"
-     UI: scrollable grid of sport cards with icons
-     Options: Swimming, Running, Powerlifting, CrossFit, Basketball,
-              Soccer, Tennis, MMA, Cycling, Other (free text)
-
-  7. "Are you preparing for a competition?"
-     UI: Yes/No toggle
-     If Yes: date picker for competition_date
-     If No: skip, competition_date = null
-
-Then: "Generate my plan" (triggers research → plan pipeline)
+1. Welcome screen: user types goal in free text ("Get stronger for swimming", "Lose 10kg before summer")
+2. Frontend classifies goal to enum (fat_loss/muscle/performance/wellness) via keyword regex
+3. Frontend sends { goal, goal_description, tier } to POST /onboarding/next-question
+4. Claude generates the next question with structured JSON (field types, options, validation)
+5. Frontend renders polished UI components based on field type (one question at a time, no history shown)
+6. AI decides when it has enough info — question count varies by tier (free ~5-7, pro ~7-10, elite ~8-12)
+7. Frontend submits to existing POST /profile (no schema changes)
 ```
+
+### How Claude adapts the conversation
+- Uses `goal_description` free text to personalize questions (mentions sport → sport questions early, mentions deadline → timeline questions)
+- Injury/pain mentioned → safety questions follow up naturally
+- Beginner → strength benchmarks skipped
+- Elite tier → sport phase, competition date, weekly hours woven in contextually
+- Field grouping scales with tier: free groups 2-4, pro groups 2-3, elite groups 1-3
+
+### Tier-aware questioning depth
+- **Free**: Collect required fields + 1-2 useful optionals. Brisk, basic plan fast.
+- **Pro**: All required + actively pursue optionals (training history, body comp, pain/mobility). Evidence-based depth.
+- **Elite**: Collect everything. Sport demands, competition timeline, training history, limitations. Olympic-caliber profiling.
+- AI signals done only when it genuinely has enough for the best plan that tier can produce.
+
+### Completeness safety net (3 layers)
+1. System prompt checklist — Claude never signals done while required fields missing
+2. Backend validation — overrides premature "done", asks for missing fields
+3. Frontend pre-submission — deterministic profile_data builder from raw answers
+
+### Supported field types (10)
+single_select, multi_select, number, text, textarea, slider, date, day_picker, yes_no, strength_benchmarks
+
+### UX design
+- Welcome screen with free-text goal input, rotating placeholders, suggestion chips
+- One-question-at-a-time layout (no conversation history shown, data kept for back navigation)
+- Sticky header (back button + progress bar + step counter), sticky footer (continue button)
+- Fade-slide-up animations between questions, staggered field appearance
+- Auto-advance on single-field single_select and yes_no steps (350ms delay)
+- Field renderers: stepper +/- for numbers, circle day picker, glow selections, gradient slider with value bubble
+- Soft safety valve at 20 questions (escape hatch link, not forced completion)
+
+### Session persistence
+Key: `fitai_onboarding_v4` in sessionStorage. Survives page refresh. 24h expiry.
 
 ---
 
-## API routes — updated (31 route-methods as of 2026-04-13)
+## API routes — updated (32 route-methods as of 2026-04-14)
 
 ### Auth
 ```
@@ -687,6 +711,15 @@ GET /chat/{plan_id}             — paginated history
 ```
 POST /collective/{plan_id}/donate
 GET /collective/stats           — public, no auth
+```
+
+### Onboarding
+```
+POST /onboarding/next-question
+  Auth required. Rate limit: 10/min.
+  Body: { answers_so_far: dict, tier: string, force_complete?: bool }
+  Returns: { done: bool, message: string, fields: OnboardingField[], profile_data?: dict }
+  Completeness safety net: validates required fields before allowing done=true
 ```
 
 ### Tier management (NOT YET IMPLEMENTED)
@@ -1100,3 +1133,41 @@ psql $DATABASE_URL -f backend/migrations/001_phase1.sql
   - Calendar page shows all weeks at once (not a month-view calendar)
   - Print styles force white background + black text for readability
   - fetchUserMe() called on every tier-gated page load — adds one API call but prevents tier spoofing
+
+### AI-Driven Onboarding V3 — 2026-04-14
+- Built:
+  - backend/routes/onboarding.py (NEW: POST /next-question with AI-driven question generation, input sanitization, completeness safety net, rate limiting 10/min)
+  - Modified backend/services/claude_client.py (added ONBOARDING_SYSTEM prompt ~7500 chars with complete field registry + contextual rules; added generate_onboarding_question() method with prompt caching via cache_control: ephemeral)
+  - Modified backend/main.py (registered onboarding_router at /onboarding)
+  - frontend/src/components/OnboardingChat.tsx (FULL REWRITE: 580 lines down from 1081. AI-driven dynamic conversation loop replacing hardcoded 8-step wizard. 10 field type renderers. Conversation history display. Back button support with answer rollback. Session persistence fitai_onboarding_v3. 15-question hard cap.)
+- Decisions:
+  - First question (goal selection) hardcoded for instant display — avoids cold API call on page load
+  - Claude generates all subsequent questions based on accumulated answers + tier context
+  - field_name values are exact ProfileCreate keys — no translation layer needed
+  - Backend builds profile_data deterministically from raw answers (doesn't trust Claude's mapping)
+  - 3-layer completeness safety net: (1) system prompt checklist, (2) backend validation that overrides premature "done", (3) frontend pre-submission check
+  - Prompt caching: system prompt identical across all calls for same tier, cache_control ephemeral reduces cost/latency for questions 2-10
+  - sessionStorage key bumped to fitai_onboarding_v3 to avoid conflicts with V2 state format
+  - Hard cap at 15 questions — sends force_complete flag, backend prompt forces Claude to signal done
+  - No database changes — final submission still uses existing POST /profile with same ProfileCreate schema
+
+### Onboarding V4 UX Redesign — 2026-04-14
+- Built:
+  - frontend/src/lib/classifyGoal.ts (NEW: keyword regex maps free-text goal to enum — fat_loss/muscle/performance/wellness)
+  - frontend/src/components/OnboardingChat.tsx (FULL REWRITE: ~650 lines. Free-text goal welcome screen with rotating placeholders + suggestion chips. One-question-at-a-time layout replacing scrolling conversation history. Sticky header with back button + gradient progress bar. Sticky footer with always-visible continue button. 10 upgraded field renderers: stepper numbers, circle day picker, gradient slider with value bubble, grid multi-select with SVG checkmarks, auto-advance on single-field single_select/yes_no. Fade-slide-up animations. Contextual loading messages. iOS safe-area padding.)
+  - frontend/src/app/globals.css (added fadeSlideUp + fadeIn keyframe animations)
+  - Modified backend/services/claude_client.py (ONBOARDING_SYSTEM prompt updated: goal field marked as pre-collected, goal_description support added for personalization, RULES section replaced with TIER-AWARE QUESTIONING DEPTH — free 5-7 questions, pro 7-10, elite 8-12. generate_onboarding_question() includes goal_description prominently in user prompt.)
+- Works:
+  - Check 1: Frontend builds with zero TypeScript errors, all 11 pages generate
+  - Check 2: Backend imports resolve cleanly (ONBOARDING_SYSTEM prompt 9582 chars)
+  - Check 3-10: Browser testing pending (requires valid ANTHROPIC_API_KEY)
+- Decisions:
+  - Free-text goal input replaces 4-card picker — user types naturally ("Get stronger for swimming"), frontend classifies to enum, raw text sent as goal_description
+  - Client-side keyword regex classification is best-effort — AI sees raw text via goal_description and personalizes regardless
+  - Removed MAX_QUESTIONS=15 hard cap and force_complete logic. AI decides when done based on tier depth requirements.
+  - Soft safety valve: "Finish setup" link appears after 20 questions as escape hatch (not forced completion)
+  - Conversation history data kept for back navigation + session persistence but NOT rendered — clean single-question view
+  - Auto-advance (350ms delay) on single-field single_select and yes_no steps — eliminates unnecessary "Continue" taps
+  - Progress bar uses tier-based estimates (free ~6, pro ~9, elite ~11), capped at 95% until done
+  - sessionStorage key bumped to fitai_onboarding_v4
+  - No database changes, no new API endpoints

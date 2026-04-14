@@ -27,6 +27,7 @@ from routes.session import session_router
 from routes.checkin import checkin_router
 from routes.collective import collective_router
 from routes.chat import chat_router
+from routes.onboarding import onboarding_router
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -52,6 +53,7 @@ app.include_router(session_router, prefix="/session", tags=["session"])
 app.include_router(checkin_router, prefix="/checkin", tags=["checkin"])
 app.include_router(collective_router, prefix="/collective", tags=["collective"])
 app.include_router(chat_router, prefix="/chat", tags=["chat"])
+app.include_router(onboarding_router, prefix="/onboarding", tags=["onboarding"])
 
 
 @app.middleware("http")
