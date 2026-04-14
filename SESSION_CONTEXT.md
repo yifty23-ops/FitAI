@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after Onboarding V4 UX Redesign on 2026-04-14.
+> Updated after Bug Fix Sweep on 2026-04-14.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + AI-Driven Onboarding V3 DEPLOYED
+## Current state: All core features + AI-Driven Onboarding V4 + Bug Fix Sweep DEPLOYED
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -195,11 +195,43 @@ The AI decides when it has enough information — no arbitrary cap. Depth scales
 
 ---
 
+## Bug Fix Sweep (2026-04-14) — Post-V4 Launch Fixes
+
+### What happened and why
+
+After deploying Onboarding V4, testing revealed 7 bugs — 3 critical, 2 high, 2 medium. The critical bugs caused blank screens and broken API calls during onboarding. The root cause of the worst bug (`from __future__ import annotations` in route files) affected 6 endpoints across the entire backend.
+
+### Bugs fixed
+
+| # | Severity | Bug | Root cause | Fix | Files |
+|---|----------|-----|------------|-----|-------|
+| 1 | CRITICAL | Blank screen after entering goal | Error state only rendered inside `currentStep` conditional — when API fails, `currentStep` is null so error is invisible | Added fallback UI with error display + retry button when `!loading && !submitting && !currentStep` | `OnboardingChat.tsx` |
+| 2 | CRITICAL | React hooks violation in number stepper | `useRef` called inside `renderNumber()` (regular function, not component) — violates Rules of Hooks | Moved `holdInterval` ref to component top level | `OnboardingChat.tsx` |
+| 3 | CRITICAL | `from __future__ import annotations` breaks FastAPI body param detection | Import turns type annotations into strings at runtime. FastAPI can't detect Pydantic models → treats `body: MyModel` as query param → 422 "Field required" on ALL POST endpoints with body params | Removed import from all 6 route files (onboarding, chat, session, checkin, collective, plan). None used `str | None` syntax. | 6 route files |
+| 4 | HIGH | Tier not saved on signup | Frontend sends `{ tier }` but `SignupRequest` only had `email` + `password`. Pydantic silently dropped `tier`. Line 113 hardcoded `tier="free"`. | Added `tier` field with validator to `SignupRequest`, use `req.tier` in User creation | `auth.py` |
+| 5 | HIGH | `[object Object]` error messages | `api.ts` passed FastAPI validation error arrays directly to `new Error()` | Extract `.msg` + `.loc` from each error object, join into readable string | `api.ts` |
+| 6 | MEDIUM | Password minLength mismatch | Frontend: `minLength={6}`, backend: `min_length=8`. Users with 6-7 char passwords got confusing backend error. | Changed frontend to `minLength={8}` + "Min 8 characters" placeholder | `page.tsx` |
+| 7 | MEDIUM | Signup redirects to /dashboard | New users sent to `/dashboard` which has no data. Should go to `/onboarding`. | Signup → `/onboarding`, login → `/dashboard` | `page.tsx` |
+
+### Additional improvements
+
+- **Session recovery**: If user refreshes during loading, state restores from sessionStorage with `currentStep=null` and `loading=false` → permanent spinner. Added `useEffect` that detects this state and re-fetches automatically.
+- **Onboarding API timeout**: Increased from 30s default to 60s. First Claude API call with ~9500 char system prompt can take 15-30s.
+- **Error messages include field names**: FastAPI validation errors now show `"authorization: Field required"` instead of just `"Field required"`.
+
+### `from __future__ import annotations` rule (CRITICAL)
+
+**NEVER add this import to any file in `backend/routes/`**. It breaks FastAPI's runtime type detection for Pydantic body parameters. The import remains safe in `services/`, `tools/`, and `models/` files where FastAPI doesn't inspect type annotations.
+
+Files that still have it (safe): `services/claude_client.py`, `tools/adapt.py`, `tools/chat.py`, `tools/collective.py`, `tools/plan_generator.py`, `models/adaptation.py`, `models/chat.py`, `test_research.py`.
+
+---
+
 ## Security & Bug Fix Sweep (2026-04-13) — Full Details
 
 ### CRITICAL fixes (all applied and verified)
 
-1. **Tier spoofing at signup FIXED** (`backend/routes/auth.py`): Removed `tier` field from `SignupRequest`. All signups forced to `tier="free"`. Tier changes can only happen through a payment-verified upgrade endpoint (not yet built). **Verified**: sending `tier: "elite"` in signup body returns `tier: "free"`.
+1. **Tier at signup** (`backend/routes/auth.py`): `SignupRequest` now accepts `tier` field (validated: free/pro/elite, default "free"). User gets the tier they select at signup. Full payment-verified upgrade endpoint not yet built (Stripe integration pending).
 
 2. **Prompt injection sanitization ADDED** (`backend/tools/research.py`): New `sanitize_for_prompt(text, max_length)` utility strips `{}` chars and control characters from user-supplied text before interpolation into Claude prompts. Applied to all fields in `profile_to_research_dict()` (goal, sex, experience, equipment, injuries). Also applied to checkin notes in `tools/chat.py` and chat messages in `routes/chat.py`. Sport field in `build_elite_persona()` (`tiers.py`) validated against `SPORT_DEMANDS` keys; freetext "Other" sport sanitized to alphanumeric+spaces only.
 
@@ -261,18 +293,11 @@ The AI decides when it has enough information — no arbitrary cap. Depth scales
 
 ### Important `from __future__ import annotations` fix
 
-**Root cause discovered**: `from __future__ import annotations` in route files breaks FastAPI's runtime parameter resolution — Pydantic body models become `ForwardRef` strings and FastAPI treats them as query params. This caused 500 errors on all POST endpoints.
+**Root cause discovered**: `from __future__ import annotations` in route files breaks FastAPI's runtime parameter resolution — Pydantic body models become `ForwardRef` strings and FastAPI treats them as query params. This caused 422 "Field required" errors on ALL POST endpoints with body params (6 endpoints across 5 route files).
 
-**Fix**: Removed `from __future__ import annotations` from `routes/auth.py`. For all routes with `@limiter.limit()` (which requires `request: Request`), moved `request: Request` AFTER the Pydantic body model and path params in the function signature. FastAPI resolves path params from the URL, body params from the Pydantic model annotation, and `Request` is injected automatically regardless of position.
+**Fix (2026-04-14 bug sweep)**: Removed `from __future__ import annotations` from ALL 6 route files: `onboarding.py`, `chat.py`, `session.py`, `checkin.py`, `collective.py`, `plan.py`. None of them used `str | None` syntax. The import remains in `services/`, `tools/`, and `models/` files where FastAPI doesn't inspect annotations.
 
-**Pattern for rate-limited routes with body params**:
-```python
-# CORRECT — body model before Request
-def my_route(body: MyModel, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-
-# WRONG — Request before body model (with from __future__ import annotations)
-def my_route(request: Request, body: MyModel, ...):
-```
+**Rule**: NEVER add `from __future__ import annotations` to any file in `backend/routes/`. Use `Optional[str]` instead of `str | None`.
 
 ### New migration files
 
@@ -284,7 +309,7 @@ def my_route(request: Request, body: MyModel, ...):
 ### API routes (32 route-methods as of 2026-04-14)
 
 ```
-POST /auth/signup           — register (rate-limited 3/min, email validated+normalized, password min 8, tier always "free")
+POST /auth/signup           — register (rate-limited 3/min, email validated+normalized, password min 8, tier from request validated free/pro/elite)
 POST /auth/login            — authenticate (rate-limited 5/min, email normalized)
 PUT  /auth/change-password  — change password (requires auth + current password)
 GET  /user/tier             — get tier + features
@@ -326,7 +351,7 @@ GET  /                 — health check
 
 ```
 /                                    — Landing: login/signup + tier cards
-/onboarding                          — AI-driven onboarding V3 (dynamic questions from Claude, sessionStorage persisted as fitai_onboarding_v3)
+/onboarding                          — AI-driven onboarding V4 (free-text goal, dynamic questions from Claude, sessionStorage as fitai_onboarding_v4)
 /plan/loading                        — Plan generation with tier-specific progress messages
 /plan/[id]                           — Plan detail with export, preview/activate banner
 /dashboard                           — Main hub with logout, rest timer, next session, progress
@@ -353,7 +378,7 @@ GET  /                 — health check
 
 5. **Python 3.9.6** (not 3.11+ as spec'd): This is the system Python on macOS. All code works fine — `from __future__ import annotations` used in non-route files where `str | None` type unions appear. **IMPORTANT**: Do NOT add `from __future__ import annotations` to any file in `backend/routes/` — it breaks FastAPI's parameter resolution. Use `Optional[str]` instead.
 
-6. **`from __future__ import annotations`**: Used in `claude_client.py`, `test_research.py`, `plan_generator.py`, `tools/adapt.py`, `tools/collective.py`, `tools/chat.py`, `models/chat.py`, and `routes/plan.py`. **NOT used in**: `routes/auth.py`, `routes/profile.py` (was removed due to FastAPI body param bug). Avoid adding it to route files with Pydantic body params + `request: Request`.
+6. **`from __future__ import annotations`**: Used in `claude_client.py`, `test_research.py`, `plan_generator.py`, `tools/adapt.py`, `tools/collective.py`, `tools/chat.py`, `models/chat.py`, `models/adaptation.py`. **REMOVED from ALL route files** (onboarding, chat, session, checkin, collective, plan, auth, profile) — it breaks FastAPI's Pydantic body param detection. Use `Optional[str]` instead of `str | None` in route files.
 
 7. **`research_for_profile` is synchronous**: Not async despite spec. The route handler is sync and SQLAlchemy session isn't async, so keeping it synchronous is correct.
 
@@ -396,7 +421,7 @@ fitai/
 │   │   ├── session.py, checkin.py, adaptation.py, collective.py, chat.py
 │   ├── routes/
 │   │   ├── __init__.py                # Empty
-│   │   ├── auth.py                    # Signup (tier forced free), login (email normalized), change-password, /me, /tier. NO from __future__ import annotations.
+│   │   ├── auth.py                    # Signup (tier from request, validated free/pro/elite), login (email normalized), change-password, /me, /tier.
 │   │   ├── profile.py                 # POST upsert (rate-limited, all V2 fields, StrengthBenchmark model, expanded validation), GET (returns all V2 fields)
 │   │   ├── plan.py                    # generate (rate-limited, concurrent lock), list, active, detail, confirm, delete, adapt (tier_at_creation), adaptations
 │   │   ├── research.py                # POST /test (rate-limited)
@@ -433,7 +458,7 @@ fitai/
 │       │   ├── globals.css            # Tailwind base styles + print-friendly export styles
 │       │   ├── layout.tsx             # Root layout: system-ui font, FitAI metadata
 │       │   ├── error.tsx              # Global error boundary: retry + dashboard link
-│       │   ├── page.tsx               # Landing: login/signup + tier cards → redirects logged-in to /dashboard
+│       │   ├── page.tsx               # Landing: login/signup + tier cards. Signup → /onboarding, login → /dashboard
 │       │   ├── onboarding/page.tsx    # Auth gate → renders OnboardingChat with tier prop
 │       │   ├── chat/page.tsx          # Coach chat: elite-only
 │       │   ├── dashboard/page.tsx     # Dashboard: next session, week progress, quick actions
@@ -445,7 +470,7 @@ fitai/
 │       │       ├── loading/page.tsx   # Plan generation: animated progress, 120s timeout, retry with attempt counter
 │       │       └── [id]/page.tsx      # Plan detail: preview/activate, export
 │       ├── components/
-│       │   ├── OnboardingChat.tsx     # V3: AI-driven dynamic onboarding (Claude generates questions), 10 field type renderers, CardButton/PillButton helpers, conversation history, back support, sessionStorage key "fitai_onboarding_v3", 15-question hard cap
+│       │   ├── OnboardingChat.tsx     # V4: AI-driven onboarding, free-text goal, one-question-at-a-time, 10 field renderers, session recovery, 60s timeout, error fallback with retry, sessionStorage "fitai_onboarding_v4"
 │       │   ├── PlanView.tsx           # Collapsible day cards with exercises
 │       │   ├── NutritionPanel.tsx     # Training/rest day macros + empty state
 │       │   ├── PeriodizationBar.tsx   # Phase-colored week timeline with legend
@@ -455,7 +480,8 @@ fitai/
 │       │   └── Celebration.tsx        # Animated checkmark overlay
 │       └── lib/
 │           ├── auth.ts                # saveToken, getToken, clearToken, getUser, isLoggedIn, fetchUserMe
-│           ├── api.ts                 # api<T>() with Bearer auth, 30s timeout, LONG_TIMEOUT_MS export
+│           ├── api.ts                 # api<T>() with Bearer auth, 30s timeout, LONG_TIMEOUT_MS export, FastAPI validation error extraction with field names
+│           ├── classifyGoal.ts        # Keyword regex maps free-text goal → enum (fat_loss/muscle/performance/wellness)
 │           └── tiers.ts              # TIER_FEATURES mirror, canUse(), validateTier(), TIER_DISPLAY
 
 ```

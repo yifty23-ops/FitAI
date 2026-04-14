@@ -44,14 +44,15 @@ export default function Home() {
           body: JSON.stringify({ email, password, tier: selectedTier }),
         });
         saveToken(res.token);
+        router.push("/onboarding");
       } else {
         const res = await api<AuthResponse>("/auth/login", {
           method: "POST",
           body: JSON.stringify({ email, password }),
         });
         saveToken(res.token);
+        router.push("/dashboard");
       }
-      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -109,11 +110,11 @@ export default function Home() {
               id="password"
               type="password"
               required
-              minLength={6}
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Min 6 characters"
+              placeholder="Min 8 characters"
             />
           </div>
 

@@ -129,6 +129,9 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
   // Auto-advance ref to prevent double-fire
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Hold interval ref for number stepper (must be at top level — Rules of Hooks)
+  const holdInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // --- Rotating placeholder ---
   useEffect(() => {
     if (phase !== "welcome") return;
@@ -197,6 +200,17 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
     };
   }, []);
 
+  // --- Recovery: if restored from session with no currentStep, re-fetch ---
+  const hasRecovered = useRef(false);
+  useEffect(() => {
+    if (hasRecovered.current) return;
+    if (phase === "questions" && !currentStep && !loading && !submitting && Object.keys(allAnswers).length > 0) {
+      hasRecovered.current = true;
+      fetchNextQuestion(allAnswers);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, currentStep, loading, submitting]);
+
   // --- Can continue? ---
   const canContinue = useCallback((): boolean => {
     if (!currentStep) return false;
@@ -220,6 +234,7 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
           answers_so_far: answers,
           tier,
         }),
+        timeoutMs: 60_000,
       });
 
       if (result.done) {
@@ -575,8 +590,6 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
     const step = field.step || 1;
     const min = field.min ?? 0;
     const max = field.max ?? 999;
-
-    const holdInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
     function startHold(direction: 1 | -1) {
       const tick = () => {
@@ -1078,7 +1091,35 @@ export default function OnboardingChat({ tier }: { tier: Tier }) {
                 </p>
               )}
             </div>
-          ) : null}
+          ) : (
+            // Fallback: no current step and not loading — show error or retry
+            <div className="flex flex-col items-center justify-center animate-[fadeIn_0.3s_ease-out]">
+              {error ? (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                    <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
+                  <p className="text-red-400 text-sm mb-4 bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-center">
+                    {error}
+                  </p>
+                  <button
+                    onClick={() => fetchNextQuestion(allAnswers)}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl transition-colors active:scale-95"
+                  >
+                    Try again
+                  </button>
+                </>
+              ) : (
+                // Edge case: no step, no error, not loading — re-fetch
+                <div className="flex flex-col items-center justify-center">
+                  <div className="w-14 h-14 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin mb-6" />
+                  <p className="text-zinc-400 text-sm">Loading your next question...</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Soft safety valve — escape hatch after 20 questions */}
           {conversationHistory.length >= 20 && !loading && !submitting && currentStep && (

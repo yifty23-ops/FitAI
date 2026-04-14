@@ -29,6 +29,7 @@ EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 class SignupRequest(BaseModel):
     email: str
     password: str = Field(min_length=8, max_length=128)
+    tier: str = "free"
 
     @field_validator("email")
     @classmethod
@@ -40,6 +41,13 @@ class SignupRequest(BaseModel):
         local = v.split("@")[0]
         if ".." in local:
             raise ValueError("Invalid email format")
+        return v
+
+    @field_validator("tier")
+    @classmethod
+    def validate_tier(cls, v: str) -> str:
+        if v not in ("free", "pro", "elite"):
+            raise ValueError("Tier must be free, pro, or elite")
         return v
 
 
@@ -110,7 +118,7 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Email already registered")
 
     hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode("utf-8")
-    user = User(email=req.email, password_hash=hashed, tier="free")
+    user = User(email=req.email, password_hash=hashed, tier=req.tier)
     db.add(user)
     db.commit()
     db.refresh(user)

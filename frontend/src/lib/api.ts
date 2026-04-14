@@ -39,7 +39,21 @@ export async function api<T>(
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({ detail: "Request failed" }));
-      throw new Error(body.detail || `HTTP ${res.status}`);
+      let message: string;
+      if (typeof body.detail === "string") {
+        message = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        // FastAPI validation errors return detail as an array of objects with loc + msg
+        message = body.detail
+          .map((e: { msg?: string; loc?: string[] }) => {
+            const field = e.loc?.slice(-1)[0];
+            return field ? `${field}: ${e.msg || "invalid"}` : (e.msg || "Validation error");
+          })
+          .join(". ");
+      } else {
+        message = `HTTP ${res.status}`;
+      }
+      throw new Error(message);
     }
 
     return res.json();
