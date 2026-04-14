@@ -49,13 +49,23 @@ def _get_week_data(plan_data: dict, week_number: int) -> dict | None:
 def _compute_snapshot_hash(snapshot: dict, tier: str) -> str:
     """Compute profile hash from a plan's profile_snapshot dict (mirrors research.compute_profile_hash)."""
     equipment = snapshot.get("equipment") or []
+    exercise_blacklist = snapshot.get("exercise_blacklist") or []
+    age_bucket = ((snapshot.get("age") or 30) // 10) * 10
+    weight_bucket = ((int(snapshot.get("weight_kg") or 70)) // 10) * 10
     key_fields = {
         "goal": snapshot.get("goal", ""),
+        "goal_sub_category": snapshot.get("goal_sub_category") or "",
         "sex": snapshot.get("sex", ""),
         "experience": snapshot.get("experience", ""),
         "equipment": sorted(equipment) if isinstance(equipment, list) else [],
         "injuries": snapshot.get("injuries") or "",
         "days_per_week": snapshot.get("days_per_week", 0),
+        "age_bucket": age_bucket,
+        "weight_bucket": weight_bucket,
+        "training_recency": snapshot.get("training_recency") or "",
+        "current_pain_level": snapshot.get("current_pain_level") or 0,
+        "exercise_blacklist": sorted(exercise_blacklist) if isinstance(exercise_blacklist, list) else [],
+        "body_fat_est": snapshot.get("body_fat_est") or "",
     }
     raw = json.dumps(key_fields, sort_keys=True) + f":{tier}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]

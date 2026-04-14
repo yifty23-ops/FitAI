@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after plan generation bug fix on 2026-04-13.
+> Updated after Onboarding V2 redesign on 2026-04-14.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + improvement sweep + security sweep COMPLETE
+## Current state: All core features + Onboarding V2 COMPLETE (pending migration + browser test)
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -55,6 +55,133 @@ Fixed 3 bugs causing "Plan generation failed" on every attempt:
 
 ---
 
+## Onboarding V2 Redesign (2026-04-14) — CODE COMPLETE, PENDING DEPLOYMENT
+
+### What changed and why
+Research from sports science intake forms (NASM, NSCA), competitor apps (JuggernautAI, RP Hypertrophy, Caliber), and coaching best practices identified 17 missing profile fields critical for AI plan quality. The old 5-step onboarding (goal, body stats, experience, schedule, lifestyle) produced generic AI prompts. The new 6-step flow (8 for elite) collects training history depth, movement quality proxies, goal specificity, exercise preferences, and sport phasing — enabling the AI to make precise programming decisions like percentage-based loading, re-introduction phases, and volume ceilings.
+
+### Files modified (10 total)
+
+| File | Change |
+|------|--------|
+| `backend/migrations/005_onboarding_v2.sql` | **NEW FILE**. Adds 15 nullable columns to profiles table, 2 to users table, plus CHECK constraints. **NOT YET APPLIED TO NEON DB.** |
+| `backend/models/profile.py` | Added 15 new Column definitions (training_age_years, training_recency, goal_sub_category, body_fat_est, goal_deadline, injury_ortho_history, current_pain_level, chair_stand_proxy, overhead_reach_proxy, training_days_specific, exercise_blacklist, protein_intake_check, current_max_bench/squat/deadlift). New imports: Boolean, Date, JSONB. |
+| `backend/models/user.py` | Added sport_phase (String) + sport_weekly_hours (Integer) columns. Added Integer import. |
+| `backend/routes/profile.py` | Full rewrite. 17 new Optional fields on ProfileCreate/ProfileResponse. New StrengthBenchmark Pydantic model. 7 new validation sets (VALID_TRAINING_RECENCY, VALID_GOAL_SUB_CATEGORY, VALID_BODY_FAT_EST, VALID_PROTEIN_INTAKE, VALID_SPORT_PHASE, VALID_WEEKDAYS). Expanded VALID_JOB_ACTIVITY to include "moderate" and "heavy_labor". Expanded stress_level from ge=1,le=5 to ge=1,le=10. days_per_week auto-derived from training_days_specific. injuries auto-populated from injury_ortho_history for backward compat. New helper functions _validate_optional_enum() and _validate_weekdays(). |
+| `backend/tools/research.py` | compute_profile_hash now includes goal_sub_category, training_recency, current_pain_level, exercise_blacklist, body_fat_est in key_fields. profile_to_research_dict returns 30+ fields with safe defaults for all new data. |
+| `backend/services/claude_client.py` | All 3 research prompts (FREE/PRO/ELITE) enriched with new profile fields. New TRAINING_RULES constant block with 14 mandatory programming rules + TRAINING_RULES_ELITE_SUFFIX with 4 sport-specific rules. Rules injected into all 3 plan prompts via two-stage template formatting (first injects rules, then formats with profile/research data). |
+| `backend/tools/plan_generator.py` | _build_profile_snapshot captures all V2 fields (goal_sub_category, body_fat_est, goal_deadline, training_age_years, training_recency, training_days_specific, injury_ortho_history, current_pain_level, chair_stand_proxy, overhead_reach_proxy, exercise_blacklist, protein_intake_check, current_max_bench/squat/deadlift). |
+| `backend/tools/adapt.py` | _compute_snapshot_hash mirrors research.compute_profile_hash with all V2 key fields (goal_sub_category, training_recency, current_pain_level, exercise_blacklist, body_fat_est, age_bucket, weight_bucket). |
+| `frontend/src/components/OnboardingChat.tsx` | Complete rewrite. 8 steps (6 non-elite, 8 elite). New ProfileCreate interface with all V2 fields. New constants: GOAL_SUB_CATEGORIES (mapped per goal), BODY_FAT_RANGES, TRAINING_RECENCY_OPTIONS, WEEKDAYS, EXERCISE_BLACKLIST_OPTIONS, OCCUPATIONAL_DEMAND_OPTIONS, PROTEIN_OPTIONS, SPORT_PHASE_OPTIONS. Reusable CardButton/PillButton helpers. Strength benchmarks conditionally shown for Pro+ non-beginners. Mobility proxy yes/no toggles. Weekday multi-select replaces days_per_week number picker. Exercise blacklist grid. Storage key changed to `fitai_onboarding_v2`. |
+| `frontend/src/app/settings/page.tsx` | Full rewrite. ProfileData interface expanded with all V2 fields. All new fields editable: goal_sub_category dropdown, body_fat_est dropdown, goal_deadline date picker, training_age_years number, training_recency dropdown, training_days_specific weekday toggles, injury_ortho_history textarea, current_pain_level slider, chair_stand_proxy/overhead_reach_proxy pass/fail toggles, exercise_blacklist multi-select, stress_level expanded to 1-10 slider, occupational_demand 4 options, protein_intake_check 3 options. Strength benchmarks shown for Pro+. Elite sport section with sport_phase dropdown and sport_weekly_hours. PillBtn helper component. |
+
+### New onboarding step flow
+
+| Step | Title | Fields | Tier |
+|------|-------|--------|------|
+| 1 | Your Destination | goal (4 cards), goal_sub_category (conditional), body_fat_est (5 ranges), goal_deadline (optional date) | All |
+| 2 | Your Body & Experience | age, weight, height, sex, experience, training_age_years, training_recency, [Pro+ non-beginner: bench/squat/deadlift maxes] | All |
+| 3 | Safety Screen | injury_ortho_history (textarea), current_pain_level (0-10 slider), chair_stand_proxy (yes/no), overhead_reach_proxy (yes/no) | All |
+| 4 | Your Training Setup | training_days_specific (Mon-Sun multi-select), session_minutes, equipment | All |
+| 5 | Recovery & Lifestyle | sleep_hours, stress_level (1-10), occupational_demand (4 options), protein_intake_check, diet_style | All |
+| 6 | Preferences | exercise_blacklist (multi-select grid) | All |
+| 7 | Sport Selection | sport (9 sport cards + Other) | Elite |
+| 8 | Athlete Sync | sport_phase (3 cards), sport_weekly_hours, competition_date (optional) | Elite |
+
+### 14 AI training rules (TRAINING_RULES block in claude_client.py)
+
+These rules are injected into every plan generation prompt. They encode the data-to-prompt mapping from the Gemini research:
+
+1. training_recency > 3mo → 2-week structural integrity re-intro phase
+2. Strength benchmarks provided → Epley 1RM formula, percentage-based loading
+3. current_pain_level > 3 → blacklist technical/heavy joint variations
+4. chair_stand_proxy = false → no barbell back squats, use goblet/box squats
+5. overhead_reach_proxy = false → no overhead pressing, use incline/landmine
+6. goal_sub_category → fine-tune rep ranges (strength=3-5, hypertrophy=8-12, etc.)
+7. body_fat_est → dictates surplus/deficit magnitude
+8. occupational_demand = heavy_labor → reduce leg volume 20-30%
+9. protein_intake_check = no → cap hypertrophy volume to maintenance
+10. Sleep < 7h → weekly set ceiling 10/muscle group; sleep >= 8h → ceiling 16-20
+11. Training days consecutive → Heavy-Light-Medium split; spread → full-body viable
+12. exercise_blacklist → swap for biomechanically equivalent alternatives
+13. goal_deadline → reverse-engineer periodization to peak on date
+14. training_age_years + experience → set volume floor/ceiling
+
+Plus 4 elite-specific rules: in-season 60% volume reduction, sport hours as total stress, <4wk competition power shift, <2wk taper.
+
+### Backward compatibility
+
+- All new DB columns nullable → existing profiles work without changes
+- days_per_week column still populated (derived from training_days_specific.length)
+- injuries column still populated (copied from injury_ortho_history)
+- stress_level 1-5 values valid within new 1-10 range
+- job_activity old values "sedentary"/"light"/"active" still valid; "moderate"/"heavy_labor" added
+- profile_to_research_dict defaults all new fields ("unknown"/"none") → old profiles produce valid prompts
+- profile_hash changes → cache miss for old profiles → fresh research (desirable)
+
+---
+
+## NEXT STEPS — Run these in a new chat
+
+### Step 1: Apply migration 005 to Neon DB
+
+```bash
+cd backend && source venv/bin/activate && python3 -c "
+from database import engine
+from sqlalchemy import text
+stmts = [s.strip() for s in open('migrations/005_onboarding_v2.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
+with engine.connect() as conn:
+    for s in stmts:
+        try:
+            conn.execute(text(s))
+            print(f'OK: {s[:80]}')
+        except Exception as e:
+            print(f'SKIP: {str(e)[:80]}')
+    conn.commit()
+print('Migration 005 complete')
+"
+```
+
+### Step 2: Verify backend starts
+
+```bash
+cd backend && source venv/bin/activate && python3 -c "from main import app; print(f'{len(app.routes)} routes — OK')"
+```
+
+Expected: `31 routes — OK`
+
+### Step 3: Verify frontend builds
+
+```bash
+cd frontend && npx next build
+```
+
+Expected: zero TypeScript errors, 11 pages generate.
+
+### Step 4: Browser test the onboarding flow
+
+Start both dev servers:
+```bash
+# Terminal 1
+cd backend && source venv/bin/activate && uvicorn main:app --reload --port 8000
+
+# Terminal 2
+cd frontend && npm run dev
+```
+
+Test flow:
+1. Sign up as a new free user → redirected to /onboarding
+2. Walk through all 6 steps (goal → body → safety → setup → lifestyle → preferences)
+3. Verify POST /profile succeeds with all new fields
+4. Verify /plan/loading triggers plan generation
+5. If possible, sign up as elite user and test all 8 steps including sport phase + weekly hours
+
+### Step 5: Commit changes
+
+When all tests pass, commit with a descriptive message covering the onboarding V2 redesign.
+
+---
+
 ## Security & Bug Fix Sweep (2026-04-13) — Full Details
 
 ### CRITICAL fixes (all applied and verified)
@@ -77,7 +204,7 @@ Fixed 3 bugs causing "Plan generation failed" on every attempt:
 
 ### HIGH fixes (all applied)
 
-6. **Profile input validation ADDED** (`backend/routes/profile.py`): Pydantic Field validators: age 13-120, weight 20-500, height 50-300, days_per_week 1-7, session_minutes 10-300, stress_level 1-5, injuries max 1000 chars, sport max 50 chars. Enum validation for goal, sex, experience, job_activity, diet_style. **Verified**: age=-5 rejected, goal="INJECT_HACK" rejected.
+6. **Profile input validation ADDED** (`backend/routes/profile.py`): Pydantic Field validators: age 13-120, weight 20-500, height 50-300, days_per_week 1-7, session_minutes 10-300, stress_level 1-10 (expanded from 1-5), injuries max 1000 chars, sport max 50 chars. Enum validation for goal, sex, experience, job_activity, diet_style + all V2 enum fields.
 
 7. **Research test endpoint gated** (`backend/routes/research.py`): Rate limited to 2/min. Note: the endpoint already respects tier — free tier gets no web search. No further gating needed since `research_for_profile` uses `user.tier`.
 
@@ -134,15 +261,14 @@ def my_route(body: MyModel, request: Request, user: User = Depends(get_current_u
 def my_route(request: Request, body: MyModel, ...):
 ```
 
-### New migration file
+### New migration files
 
-`backend/migrations/004_unique_constraints_and_checks.sql` — **ALREADY APPLIED to Neon DB**. Contains:
-- 3 UNIQUE constraints (sessions, weekly_checkins, profiles)
-- 3 CHECK constraints (week_number > 0, day_number > 0)
+- `backend/migrations/004_unique_constraints_and_checks.sql` — **APPLIED to Neon DB**. 3 UNIQUE + 3 CHECK constraints.
+- `backend/migrations/005_onboarding_v2.sql` — **NOT YET APPLIED to Neon DB**. 15 columns on profiles, 2 on users, 3 CHECK constraints.
 
 ---
 
-### API routes (31 route-methods as of 2026-04-13)
+### API routes (31 route-methods as of 2026-04-14)
 
 ```
 POST /auth/signup           — register (rate-limited 3/min, email validated+normalized, password min 8, tier always "free")
@@ -151,8 +277,8 @@ PUT  /auth/change-password  — change password (requires auth + current passwor
 GET  /user/tier             — get tier + features
 GET  /user/me               — get user details from DB (tier, email, sport, features)
 
-POST /profile               — upsert profile (rate-limited 3/min, validated bounds+enums, returns plan_stale flag)
-GET  /profile               — get profile
+POST /profile               — upsert profile (rate-limited 3/min, validated bounds+enums including V2 fields, returns plan_stale flag)
+GET  /profile               — get profile (includes all V2 fields + sport_phase/sport_weekly_hours for elite)
 
 POST /plan/generate         — generate plan (rate-limited 2/min, tier plan limit enforced, concurrent lock)
 GET  /plan/                 — list plans (paginated: skip/limit)
@@ -185,14 +311,14 @@ GET  /                 — health check
 
 ```
 /                                    — Landing: login/signup + tier cards
-/onboarding                          — Onboarding wizard (progress persisted in sessionStorage)
+/onboarding                          — Onboarding wizard V2 (8-step, sessionStorage persisted as fitai_onboarding_v2)
 /plan/loading                        — Plan generation with tier-specific progress messages
 /plan/[id]                           — Plan detail with export, preview/activate banner
 /dashboard                           — Main hub with logout, rest timer, next session, progress
 /session/[planId]/[week]/[day]       — Session logging with rest timer, confirmation, prev-week comparison
 /checkin/[planId]/[week]             — Weekly check-in with labeled scales, confirmation modal
 /chat                                — Elite coach chat
-/settings                            — Profile editing, change password, tier display, logout
+/settings                            — Profile editing (all V2 fields), change password, tier display, logout
 /calendar                            — Training calendar (week-by-week with completion status)
 /_not-found                          — 404 page (Next.js default)
 + error.tsx                          — Global error boundary
@@ -212,7 +338,7 @@ GET  /                 — health check
 
 5. **Python 3.9.6** (not 3.11+ as spec'd): This is the system Python on macOS. All code works fine — `from __future__ import annotations` used in non-route files where `str | None` type unions appear. **IMPORTANT**: Do NOT add `from __future__ import annotations` to any file in `backend/routes/` — it breaks FastAPI's parameter resolution. Use `Optional[str]` instead.
 
-6. **`from __future__ import annotations`**: Used in `claude_client.py`, `test_research.py`, `plan_generator.py`, `tools/adapt.py`, `tools/collective.py`, `tools/chat.py`, `models/chat.py`, and `routes/plan.py`. **NOT used in**: `routes/auth.py` (was removed due to FastAPI body param bug). Avoid adding it to route files with Pydantic body params + `request: Request`.
+6. **`from __future__ import annotations`**: Used in `claude_client.py`, `test_research.py`, `plan_generator.py`, `tools/adapt.py`, `tools/collective.py`, `tools/chat.py`, `models/chat.py`, and `routes/plan.py`. **NOT used in**: `routes/auth.py`, `routes/profile.py` (was removed due to FastAPI body param bug). Avoid adding it to route files with Pydantic body params + `request: Request`.
 
 7. **`research_for_profile` is synchronous**: Not async despite spec. The route handler is sync and SQLAlchemy session isn't async, so keeping it synchronous is correct.
 
@@ -222,11 +348,11 @@ GET  /                 — health check
 
 10. **`RestTimer.tsx`, `Celebration.tsx` (extra components)**: Not in original component list. Added for gym UX improvements.
 
-11. **`003_indexes_and_cascade.sql`, `004_unique_constraints_and_checks.sql` (extra migrations)**: Not in original migration plan. 003 adds performance indexes and CASCADE constraints. 004 adds UNIQUE + CHECK constraints. **Both applied to Neon DB.**
+11. **`003_indexes_and_cascade.sql`, `004_unique_constraints_and_checks.sql`, `005_onboarding_v2.sql` (extra migrations)**: Not in original migration plan. 003 adds performance indexes and CASCADE constraints. 004 adds UNIQUE + CHECK constraints. 005 adds onboarding V2 profile columns. **003 and 004 applied. 005 NOT YET APPLIED.**
 
 ---
 
-## File tree (63 source files as of 2026-04-13)
+## File tree (64 source files as of 2026-04-14)
 
 ```
 fitai/
@@ -249,12 +375,14 @@ fitai/
 │   │   └── 2026-04-13.md              # First automated research log
 │   ├── models/
 │   │   ├── __init__.py                # Re-exports Base, engine, get_db + all models
-│   │   ├── user.py, profile.py, research_cache.py, plan.py
+│   │   ├── user.py                    # User: +sport_phase, +sport_weekly_hours (V2)
+│   │   ├── profile.py                 # Profile: +15 V2 columns (training_age_years, training_recency, goal_sub_category, body_fat_est, goal_deadline, injury_ortho_history, current_pain_level, chair_stand_proxy, overhead_reach_proxy, training_days_specific, exercise_blacklist, protein_intake_check, current_max_bench/squat/deadlift)
+│   │   ├── research_cache.py, plan.py
 │   │   ├── session.py, checkin.py, adaptation.py, collective.py, chat.py
 │   ├── routes/
 │   │   ├── __init__.py                # Empty
 │   │   ├── auth.py                    # Signup (tier forced free), login (email normalized), change-password, /me, /tier. NO from __future__ import annotations.
-│   │   ├── profile.py                 # POST upsert (rate-limited, validated bounds+enums), GET
+│   │   ├── profile.py                 # POST upsert (rate-limited, all V2 fields, StrengthBenchmark model, expanded validation), GET (returns all V2 fields)
 │   │   ├── plan.py                    # generate (rate-limited, concurrent lock), list, active, detail, confirm, delete, adapt (tier_at_creation), adaptations
 │   │   ├── research.py                # POST /test (rate-limited)
 │   │   ├── session.py                 # POST (rate-limited, week/day bounds, UNIQUE), PUT (rate-limited, 24h), GET list, GET week
@@ -263,19 +391,20 @@ fitai/
 │   │   └── chat.py                    # POST (rate-limited, sanitized), GET (tier-gated)
 │   ├── tools/
 │   │   ├── __init__.py                # Empty
-│   │   ├── research.py                # sanitize_for_prompt(), compute_profile_hash, profile_to_research_dict (sanitized), research_for_profile, _attach_collective (try-catch protected)
-│   │   ├── plan_generator.py          # generate_plan_for_profile (structure validation, concurrent lock)
-│   │   ├── adapt.py                   # adapt_plan (uses plan.tier_at_creation), get_adaptation_history (limited to 5)
+│   │   ├── research.py                # sanitize_for_prompt(), compute_profile_hash (V2 fields in key), profile_to_research_dict (30+ fields), research_for_profile, _attach_collective
+│   │   ├── plan_generator.py          # generate_plan_for_profile (V2 profile snapshot), _build_profile_snapshot (all V2 fields)
+│   │   ├── adapt.py                   # adapt_plan (uses plan.tier_at_creation), _compute_snapshot_hash (V2 key fields synced with research.py)
 │   │   ├── collective.py              # donate_result + query_collective (sport-aware 3-tier query)
 │   │   └── chat.py                    # build_coach_context (sanitized notes), get_conversation_history, apply_chat_modifications
 │   ├── services/
 │   │   ├── __init__.py                # Empty
-│   │   └── claude_client.py           # ClaudeClient (research + generate_plan + adapt + chat, with httpx timeout, retry guard)
+│   │   └── claude_client.py           # ClaudeClient (V2 enriched research prompts + TRAINING_RULES block in plan prompts + adapt + chat, httpx timeout, retry guard)
 │   └── migrations/
-│       ├── 001_phase1.sql             # All 8 CREATE TABLE statements
-│       ├── 002_phase8_chat.sql        # chat_messages table + indexes
+│       ├── 001_phase1.sql             # All 8 CREATE TABLE statements (APPLIED)
+│       ├── 002_phase8_chat.sql        # chat_messages table + indexes (APPLIED)
 │       ├── 003_indexes_and_cascade.sql # 8 indexes + CASCADE constraints (APPLIED)
-│       └── 004_unique_constraints_and_checks.sql # 3 UNIQUE + 3 CHECK constraints (APPLIED)
+│       ├── 004_unique_constraints_and_checks.sql # 3 UNIQUE + 3 CHECK constraints (APPLIED)
+│       └── 005_onboarding_v2.sql      # 15 profile columns + 2 user columns + 3 CHECK constraints (NOT YET APPLIED)
 │
 ├── frontend/
 │   ├── .env.local                     # NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -292,7 +421,7 @@ fitai/
 │       │   ├── onboarding/page.tsx    # Auth gate → renders OnboardingChat with tier prop
 │       │   ├── chat/page.tsx          # Coach chat: elite-only
 │       │   ├── dashboard/page.tsx     # Dashboard: next session, week progress, quick actions
-│       │   ├── settings/page.tsx      # Settings: profile editing, change password, tier display, logout
+│       │   ├── settings/page.tsx      # Settings V2: all profile fields (V2), strength benchmarks (Pro+), sport phase (Elite), change password, tier display, logout
 │       │   ├── calendar/page.tsx      # Training calendar: week-by-week
 │       │   ├── session/[planId]/[week]/[day]/page.tsx  # Session logging
 │       │   ├── checkin/[planId]/[week]/page.tsx         # Weekly check-in
@@ -300,7 +429,7 @@ fitai/
 │       │       ├── loading/page.tsx   # Plan generation: animated progress, 120s timeout, retry with attempt counter
 │       │       └── [id]/page.tsx      # Plan detail: preview/activate, export
 │       ├── components/
-│       │   ├── OnboardingChat.tsx     # 7-step wizard with sessionStorage persistence
+│       │   ├── OnboardingChat.tsx     # V2: 8-step wizard (6 non-elite), CardButton/PillButton helpers, strength benchmarks, mobility proxies, weekday picker, exercise blacklist, sessionStorage key "fitai_onboarding_v2"
 │       │   ├── PlanView.tsx           # Collapsible day cards with exercises
 │       │   ├── NutritionPanel.tsx     # Training/rest day macros + empty state
 │       │   ├── PeriodizationBar.tsx   # Phase-colored week timeline with legend
@@ -323,20 +452,23 @@ fitai/
 - **Connection**: See `backend/.env` for full URL
 - **Tables**: users, profiles, research_cache, plans, sessions, weekly_checkins, collective_results, adaptation_log, chat_messages
 - **Test users in DB**: `test-hack@example.com` (free tier, has profile), `test-normal@example.com` (free tier, no profile) — created during security testing
-- **Migrations**: All 4 applied to Neon:
-  - `001_phase1.sql` — 8 tables
-  - `002_phase8_chat.sql` — chat_messages + indexes
-  - `003_indexes_and_cascade.sql` — 8 performance indexes + CASCADE constraints
-  - `004_unique_constraints_and_checks.sql` — 3 UNIQUE + 3 CHECK constraints
+- **Migrations applied**: 001, 002, 003, 004. **Migration 005 NOT YET APPLIED.**
 
-Run migrations via:
+Run migration 005 via:
 ```bash
 cd backend && source venv/bin/activate && python3 -c "
 from database import engine
 from sqlalchemy import text
+stmts = [s.strip() for s in open('migrations/005_onboarding_v2.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
 with engine.connect() as conn:
-    conn.execute(text(open('migrations/004_unique_constraints_and_checks.sql').read()))
+    for s in stmts:
+        try:
+            conn.execute(text(s))
+            print(f'OK: {s[:80]}')
+        except Exception as e:
+            print(f'SKIP: {str(e)[:80]}')
     conn.commit()
+print('Migration 005 complete')
 "
 ```
 
@@ -370,19 +502,20 @@ cd backend && source venv/bin/activate && python3 -c "from main import app; prin
 # Verify frontend
 cd frontend && npm run build
 
-# Run a specific migration
+# Run migration 005 (NOT YET APPLIED)
 cd backend && source venv/bin/activate && python3 -c "
 from database import engine
 from sqlalchemy import text
-stmts = [s.strip() for s in open('migrations/004_unique_constraints_and_checks.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
+stmts = [s.strip() for s in open('migrations/005_onboarding_v2.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
 with engine.connect() as conn:
     for s in stmts:
         try:
             conn.execute(text(s))
-            print(f'OK: {s[:60]}')
+            print(f'OK: {s[:80]}')
         except Exception as e:
             print(f'SKIP: {str(e)[:80]}')
     conn.commit()
+print('Migration 005 complete')
 "
 ```
 
@@ -406,10 +539,10 @@ These are known gaps documented in the improvement plan but not yet implemented:
 
 ---
 
-## What has been tested locally (2026-04-13)
+## What has been tested locally (2026-04-14)
 
-- Backend starts cleanly on port 8000 (health check returns `{"status":"ok"}`)
-- Frontend builds with zero TypeScript errors, all 11 pages generate, dev server runs on port 3000
+- Backend starts cleanly with 31 routes (verified after Onboarding V2 changes)
+- Frontend builds with zero TypeScript errors, all 11 pages generate (verified after Onboarding V2 changes)
 - Signup: tier spoofing blocked (sends `elite`, gets `free`)
 - Login: email normalization works (`" TEST-HACK@EXAMPLE.COM "` matches lowercase DB entry)
 - Profile: age=-5 rejected (ge=13), goal="INJECT_HACK" rejected (enum validation)
@@ -417,4 +550,6 @@ These are known gaps documented in the improvement plan but not yet implemented:
 - Security headers present on all responses (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection)
 - `sanitize_for_prompt()` strips `{}` from injection attempts
 - `build_elite_persona()` strips special chars from freetext sport names
-- All DB constraints (UNIQUE, CHECK) applied and verified on Neon
+- All DB constraints (UNIQUE, CHECK) applied and verified on Neon (migrations 001-004)
+- **Migration 005 NOT YET APPLIED** — must be run before browser testing the new onboarding
+- **Browser testing of V2 onboarding PENDING** — needs migration 005 + both dev servers running

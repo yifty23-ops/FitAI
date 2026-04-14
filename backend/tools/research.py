@@ -37,6 +37,7 @@ def compute_profile_hash(profile: Profile, tier: str) -> str:
     weight_bucket = ((int(profile.weight_kg or 70)) // 10) * 10  # 60kg, 70kg, 80kg, etc.
     key_fields = {
         "goal": profile.goal,
+        "goal_sub_category": profile.goal_sub_category or "",
         "sex": profile.sex,
         "experience": profile.experience,
         "equipment": sorted(profile.equipment or []),
@@ -44,6 +45,11 @@ def compute_profile_hash(profile: Profile, tier: str) -> str:
         "days_per_week": profile.days_per_week,
         "age_bucket": age_bucket,
         "weight_bucket": weight_bucket,
+        # V2 fields that affect research quality
+        "training_recency": profile.training_recency or "",
+        "current_pain_level": profile.current_pain_level or 0,
+        "exercise_blacklist": sorted(profile.exercise_blacklist or []),
+        "body_fat_est": profile.body_fat_est or "",
     }
     raw = json.dumps(key_fields, sort_keys=True) + f":{tier}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -56,19 +62,45 @@ def profile_to_research_dict(profile: Profile, user: User) -> dict:
     """
     equipment_list = profile.equipment or ["bodyweight"]
     equipment_str = ", ".join(sanitize_for_prompt(e, max_length=50) for e in equipment_list)
+    blacklist_list = profile.exercise_blacklist or []
+    blacklist_str = ", ".join(sanitize_for_prompt(e, max_length=50) for e in blacklist_list) or "none"
+    days_specific = profile.training_days_specific or []
+    days_specific_str = ", ".join(days_specific) if days_specific else "not specified"
+
     return {
         "goal": sanitize_for_prompt(profile.goal, max_length=50),
+        "goal_sub_category": sanitize_for_prompt(profile.goal_sub_category or "general", max_length=30),
+        "body_fat_est": sanitize_for_prompt(profile.body_fat_est or "unknown", max_length=10),
+        "goal_deadline": str(profile.goal_deadline) if profile.goal_deadline else "none",
         "sex": sanitize_for_prompt(profile.sex, max_length=10),
         "age": profile.age or "unknown",
         "weight_kg": profile.weight_kg or "unknown",
         "height_cm": profile.height_cm or "unknown",
         "experience": sanitize_for_prompt(profile.experience, max_length=20),
         "experience_detail": f"{sanitize_for_prompt(profile.experience, max_length=20)} level trainee",
+        "training_age_years": profile.training_age_years if profile.training_age_years is not None else "unknown",
+        "training_recency": sanitize_for_prompt(profile.training_recency or "unknown", max_length=20),
         "days_per_week": profile.days_per_week or 3,
+        "training_days_specific": days_specific_str,
         "session_minutes": profile.session_minutes or 60,
         "equipment": equipment_str,
         "injuries": sanitize_for_prompt(profile.injuries or "none reported", max_length=500),
+        "injury_ortho_history": sanitize_for_prompt(profile.injury_ortho_history or "none reported", max_length=1000),
+        "current_pain_level": profile.current_pain_level if profile.current_pain_level is not None else "none",
+        "chair_stand_proxy": "yes" if profile.chair_stand_proxy else ("no" if profile.chair_stand_proxy is False else "not assessed"),
+        "overhead_reach_proxy": "yes" if profile.overhead_reach_proxy else ("no" if profile.overhead_reach_proxy is False else "not assessed"),
+        "exercise_blacklist": blacklist_str,
+        "sleep_hours": profile.sleep_hours or "unknown",
+        "stress_level": profile.stress_level or "unknown",
+        "job_activity": sanitize_for_prompt(profile.job_activity or "unknown", max_length=20),
+        "protein_intake_check": sanitize_for_prompt(profile.protein_intake_check or "unknown", max_length=10),
+        "diet_style": sanitize_for_prompt(profile.diet_style or "unknown", max_length=20),
+        "current_max_bench": json.dumps(profile.current_max_bench) if profile.current_max_bench else "not provided",
+        "current_max_squat": json.dumps(profile.current_max_squat) if profile.current_max_squat else "not provided",
+        "current_max_deadlift": json.dumps(profile.current_max_deadlift) if profile.current_max_deadlift else "not provided",
         "competition_date": str(user.competition_date) if user.competition_date else "none",
+        "sport_phase": sanitize_for_prompt(user.sport_phase or "unknown", max_length=20),
+        "sport_weekly_hours": user.sport_weekly_hours if user.sport_weekly_hours is not None else "unknown",
     }
 
 

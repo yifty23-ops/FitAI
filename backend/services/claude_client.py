@@ -10,14 +10,25 @@ from tiers import PERSONAS, SPORT_DEMANDS, TIER_FEATURES, build_elite_persona
 
 logger = logging.getLogger(__name__)
 
-# --- Prompt templates (EXACT from CLAUDE.md) ---
+# --- Research prompt templates ---
 
 RESEARCH_PROMPT_FREE = """Based on your knowledge of exercise science, recommend protocols for:
-- Goal: {goal}
+- Goal: {goal} (focus: {goal_sub_category})
+- Body fat estimate: {body_fat_est}
+- Goal deadline: {goal_deadline}
 - Sex: {sex}, Age: {age}, Experience: {experience}
-- Training: {days_per_week}x/week, {session_minutes} min
+- Training age: {training_age_years} years of structured training
+- Training recency: last trained regularly {training_recency}
+- Training: {days_per_week}x/week ({training_days_specific}), {session_minutes} min
 - Equipment: {equipment}
-- Limitations: {injuries}
+- Injury history: {injury_ortho_history}
+- Current pain level: {current_pain_level}/10
+- Mobility: can rise from chair without hands: {chair_stand_proxy}, can reach overhead to wall: {overhead_reach_proxy}
+- Exercises to avoid: {exercise_blacklist}
+- Occupational demand: {job_activity}
+- Sleep: {sleep_hours}h, Stress: {stress_level}/10
+- Protein intake adequate (>=1.6g/kg): {protein_intake_check}
+- Diet: {diet_style}
 
 Return this EXACT JSON:
 {{
@@ -37,14 +48,26 @@ Return this EXACT JSON:
 """
 
 RESEARCH_PROMPT_PRO = """Find optimal training protocols for this person:
-- Goal: {goal}
+- Goal: {goal} (focus: {goal_sub_category})
+- Body fat estimate: {body_fat_est}
+- Goal deadline: {goal_deadline}
 - Sex: {sex}, Age: {age}, Weight: {weight_kg}kg, Height: {height_cm}cm
 - Experience: {experience} ({experience_detail})
-- Training: {days_per_week}x/week, {session_minutes} min
+- Training age: {training_age_years} years of structured training
+- Training recency: last trained regularly {training_recency}
+- Strength benchmarks: Bench {current_max_bench}, Squat {current_max_squat}, Deadlift {current_max_deadlift}
+- Training: {days_per_week}x/week ({training_days_specific}), {session_minutes} min
 - Equipment: {equipment}
-- Limitations: {injuries}
+- Injury history: {injury_ortho_history}
+- Current pain level: {current_pain_level}/10
+- Mobility: can rise from chair without hands: {chair_stand_proxy}, can reach overhead to wall: {overhead_reach_proxy}
+- Exercises to avoid: {exercise_blacklist}
+- Occupational demand: {job_activity}
+- Sleep: {sleep_hours}h, Stress: {stress_level}/10
+- Protein intake adequate (>=1.6g/kg): {protein_intake_check}
+- Diet: {diet_style}
 
-Search for: "{goal} training protocol {experience} evidence-based"
+Search for: "{goal} {goal_sub_category} training protocol {experience} evidence-based"
 Then: "optimal training volume {goal} meta-analysis"
 Then: "periodization model {experience} {days_per_week} days"
 
@@ -69,13 +92,27 @@ GOOD: {{"weekly_volume": "10-20 sets per muscle group per week (dose-response co
 """
 
 RESEARCH_PROMPT_ELITE = """Find ELITE-LEVEL training protocols for a competitive {sport} athlete:
-- Goal: {goal}
+- Goal: {goal} (focus: {goal_sub_category})
+- Body fat estimate: {body_fat_est}
+- Goal deadline: {goal_deadline}
 - Sex: {sex}, Age: {age}, Weight: {weight_kg}kg, Height: {height_cm}cm
 - Experience: {experience}
-- Training: {days_per_week}x/week, {session_minutes} min (dryland/gym only)
+- Training age: {training_age_years} years of structured training
+- Training recency: last trained regularly {training_recency}
+- Strength benchmarks: Bench {current_max_bench}, Squat {current_max_squat}, Deadlift {current_max_deadlift}
+- Training: {days_per_week}x/week ({training_days_specific}), {session_minutes} min (dryland/gym only)
 - Equipment: {equipment}
-- Limitations: {injuries}
+- Injury history: {injury_ortho_history}
+- Current pain level: {current_pain_level}/10
+- Mobility: can rise from chair without hands: {chair_stand_proxy}, can reach overhead to wall: {overhead_reach_proxy}
+- Exercises to avoid: {exercise_blacklist}
 - Competition date: {competition_date}
+- Current season phase: {sport_phase}
+- Sport practice volume: {sport_weekly_hours} hours/week
+- Occupational demand: {job_activity}
+- Sleep: {sleep_hours}h, Stress: {stress_level}/10
+- Protein intake adequate (>=1.6g/kg): {protein_intake_check}
+- Diet: {diet_style}
 
 Search for: "{sport} strength conditioning elite athlete protocol"
 Then: "{sport} periodization competition peaking model"
@@ -108,11 +145,57 @@ GOOD for swimming: {{"exercise_priorities": ["Pull-ups (lat strength for catch p
 """
 
 
-# --- Plan generation prompt templates (EXACT from CLAUDE.md) ---
+# --- Training rules block injected into plan prompts ---
 
-PLAN_PROMPT_FREE = """Generate a basic {mesocycle_weeks}-week training plan.
-PROFILE: {profile}
-PROTOCOLS: {research}
+TRAINING_RULES = """
+MANDATORY PROGRAMMING RULES — apply these based on the athlete's data above:
+
+1. TRAINING RECENCY: If the user has not trained regularly for >3 months, you MUST program a 2-week "Structural Integrity" re-introduction phase before the main mesocycle. Week 1: max 1 set per movement pattern, 3-4 RIR. Week 2: 2 sets per pattern, 2-3 RIR. The main mesocycle begins Week 3.
+
+2. STRENGTH BENCHMARKS: If bench/squat/deadlift numbers are provided, use the Epley formula (1RM = weight x (1 + reps/30)) to estimate 1RM. Program percentage-based loading from these 1RMs. If 1RM > 2x bodyweight for any lift, reduce frequency of that lift to 1x/week using a "Top Set + Back-off" structure. If 1RM < 1x bodyweight, use linear progression (add weight each session).
+
+3. PAIN LEVEL: If current_pain_level > 3, blacklist technical/heavy variations of any affected joint. Prioritize pain-free ranges of motion and stability work.
+
+4. CHAIR STAND PROXY: If the user cannot rise from a chair without hands, do NOT prescribe barbell back squats. Use goblet squats, box squats, or leg press instead until eccentric control improves.
+
+5. OVERHEAD REACH PROXY: If the user cannot reach overhead to a wall with thumbs (back flat), do NOT prescribe overhead pressing (OHP, push press). Use incline press, landmine press, or high incline dumbbell press instead.
+
+6. GOAL SUB-CATEGORY: Fine-tune rep ranges — strength: 3-5 reps, hypertrophy: 8-12 reps, powerbuilding: mix of 3-5 and 8-12, endurance: 15-20+, cut: maintain intensity with reduced volume, recomp: moderate deficit with strength emphasis.
+
+7. BODY FAT ESTIMATE: Dictates nutrition strategy magnitude. <10%: maintenance or slight surplus only. 10-15%: lean bulk (200-300 cal surplus) or moderate cut. 15-20%: standard protocols. 20-25%: prioritize deficit if fat_loss goal. 25%+: aggressive but safe deficit with volume reduction.
+
+8. OCCUPATIONAL DEMAND: If heavy_labor or moderate, reduce total weekly leg volume by 20-30% vs a sedentary user. Do not program heavy squats/deadlifts on the day after the user's heaviest work day.
+
+9. PROTEIN INTAKE: If protein_intake_check is "no" or "unsure", cap hypertrophy volume to maintenance levels (10 sets/muscle/week max) and prioritize strength blocks over growth blocks until protein is addressed. Add a note about this in the plan rationale.
+
+10. SLEEP & STRESS: If sleep < 7 hours, set weekly set ceiling to 10 sets per muscle group. If sleep >= 8 hours, ceiling can be 16-20 sets. If stress_level >= 7/10, prefer autoregulated RPE-based loading over fixed percentages.
+
+11. TRAINING DAYS: Use the specific days (Mon-Sun) to plan heavy/light/medium distribution. If training days are consecutive (e.g., Mon-Tue-Wed), implement an Upper-Lower-Pull or Heavy-Light-Medium split to manage localized fatigue. If spread (e.g., Mon-Wed-Fri), full-body or push-pull is viable.
+
+12. EXERCISE BLACKLIST: Any exercise in the blacklist must be swapped for a biomechanically equivalent alternative. Never include a blacklisted exercise.
+
+13. GOAL DEADLINE: If a specific deadline is set, reverse-engineer the periodization to peak on that date. Structure: GPP → intensification → pre-peak → taper.
+
+14. TRAINING AGE: Combined with experience level, set volume floor and ceiling. <1 year training age: 6-10 sets/muscle/week. 1-3 years: 10-16 sets. 3+ years: 14-20+ sets (if recovery supports it).
+"""
+
+TRAINING_RULES_ELITE_SUFFIX = """
+SPORT-SPECIFIC RULES:
+15. SPORT PHASE: If in_season, reduce total gym volume by 60%. Keep intensity high (85-90% 1RM) but reps low (2-3) to maintain neural adaptations without inducing soreness. Total session time must not exceed 45 minutes. If pre_season, moderate volume, building sport-specific power. If off_season, full development blocks are appropriate.
+
+16. SPORT WEEKLY HOURS: Factor these hours into total training stress calculation. If sport_weekly_hours > 15, gym volume must be conservative. The gym program is SUPPLEMENTAL — it must not compromise sport performance.
+
+17. If competition is <4 weeks away: shift toward sport-specific power, reduce gym volume significantly.
+18. If competition is <2 weeks away: begin taper — reduce volume 50%, maintain intensity.
+"""
+
+
+# --- Plan generation prompt templates ---
+
+PLAN_PROMPT_FREE = """Generate a basic {{mesocycle_weeks}}-week training plan.
+PROFILE: {{profile}}
+PROTOCOLS: {{research}}
+{training_rules}
 
 Keep it simple and effective. 4-week blocks, straightforward progression.
 Return JSON with "plan" and "nutrition" keys.
@@ -121,9 +204,10 @@ BAD: {{"load_instruction": "moderate weight"}}
 GOOD: {{"load_instruction": "RPE 7-8, increase weight when all reps completed"}}
 """
 
-PLAN_PROMPT_PRO = """Generate a complete {mesocycle_weeks}-week periodized plan.
-PROFILE: {profile}
-RESEARCH: {research}
+PLAN_PROMPT_PRO = """Generate a complete {{mesocycle_weeks}}-week periodized plan.
+PROFILE: {{profile}}
+RESEARCH: {{research}}
+{training_rules}
 
 Requirements:
 1. Proper periodization: accumulation → intensification → deload → peak
@@ -135,18 +219,19 @@ BAD: {{"load_instruction": "moderate weight"}}
 GOOD: {{"load_instruction": "start at 70% 1RM, add 2.5kg when 10 reps hit on all sets at RPE <8"}}
 """
 
-PLAN_PROMPT_ELITE = """Generate an elite {mesocycle_weeks}-week plan for a competitive {sport} athlete.
-PROFILE: {profile}
-RESEARCH: {research}
-COMPETITION DATE: {competition_date}
+PLAN_PROMPT_ELITE = """Generate an elite {{mesocycle_weeks}}-week plan for a competitive {{sport}} athlete.
+PROFILE: {{profile}}
+RESEARCH: {{research}}
+COMPETITION DATE: {{competition_date}}
+{training_rules}
 
 Requirements:
-1. EVERY exercise must transfer to {sport} performance — justify each choice
-2. Periodization must peak for competition date (reverse-engineer from {competition_date})
+1. EVERY exercise must transfer to {{sport}} performance — justify each choice
+2. Periodization must peak for competition date (reverse-engineer from {{competition_date}})
 3. Phase structure: GPP → sport-specific → pre-competition → taper → peak
-4. Account for sport training volume (this is SUPPLEMENTAL to their {sport} training)
+4. Account for sport training volume (this is SUPPLEMENTAL to their {{sport}} training)
 5. Include sport-specific warmup/activation protocols
-6. Injury prevention exercises for {sport}-specific risk areas
+6. Injury prevention exercises for {{sport}}-specific risk areas
 7. Load and volume must respect the athlete's total training stress (sport + gym combined)
 
 BAD: {{"label": "Upper Body Day", "focus": "chest and back"}}
@@ -154,7 +239,7 @@ GOOD for swimming: {{"label": "Pull-Dominant + Rotational Core", "focus": "lat s
 """
 
 
-# --- Adaptation prompt templates (Phase 6) ---
+# --- Adaptation prompt templates ---
 
 ADAPT_SYSTEM_PRO = (
     "You are a world-class S&C coach reviewing a client's training week. "
@@ -216,7 +301,7 @@ BAD: {{"change": "increase weight", "reason": "progressive overload"}}
 GOOD: {{"change": "increase from 60kg to 62.5kg", "reason": "hit 10 reps at RPE 7 for 3 sets, below target RPE 8. Competition is 8 weeks away — still in accumulation, safe to progress."}}
 """
 
-# --- Coach chat prompts (Phase 8) ---
+# --- Coach chat prompts ---
 
 COACH_CHAT_SYSTEM = """{persona}
 
@@ -417,20 +502,35 @@ class ClaudeClient:
         competition_date: str | None,
     ) -> str:
         mesocycle_weeks = TIER_FEATURES[tier]["max_mesocycle_weeks"]
-        format_dict = {
-            "profile": json.dumps(profile, indent=2),
-            "research": json.dumps(research, indent=2),
-            "mesocycle_weeks": mesocycle_weeks,
-        }
+
+        # Build training rules block
+        rules = TRAINING_RULES
+        if tier == "elite":
+            rules += TRAINING_RULES_ELITE_SUFFIX
 
         if tier == "elite":
-            format_dict["sport"] = sport or "general"
-            format_dict["competition_date"] = competition_date or "none"
-            return PLAN_PROMPT_ELITE.format(**format_dict)
+            template = PLAN_PROMPT_ELITE.format(training_rules=rules)
+            return template.format(
+                profile=json.dumps(profile, indent=2),
+                research=json.dumps(research, indent=2),
+                mesocycle_weeks=mesocycle_weeks,
+                sport=sport or "general",
+                competition_date=competition_date or "none",
+            )
         elif tier == "pro":
-            return PLAN_PROMPT_PRO.format(**format_dict)
+            template = PLAN_PROMPT_PRO.format(training_rules=rules)
+            return template.format(
+                profile=json.dumps(profile, indent=2),
+                research=json.dumps(research, indent=2),
+                mesocycle_weeks=mesocycle_weeks,
+            )
         else:
-            return PLAN_PROMPT_FREE.format(**format_dict)
+            template = PLAN_PROMPT_FREE.format(training_rules=rules)
+            return template.format(
+                profile=json.dumps(profile, indent=2),
+                research=json.dumps(research, indent=2),
+                mesocycle_weeks=mesocycle_weeks,
+            )
 
     def _build_research_system(self, tier: str) -> str:
         if tier == "free":
