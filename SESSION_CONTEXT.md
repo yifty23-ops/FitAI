@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after Onboarding V2 redesign on 2026-04-14.
+> Updated after Onboarding V2 deployment on 2026-04-14.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + Onboarding V2 COMPLETE (pending migration + browser test)
+## Current state: All core features + Onboarding V2 DEPLOYED
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -55,7 +55,7 @@ Fixed 3 bugs causing "Plan generation failed" on every attempt:
 
 ---
 
-## Onboarding V2 Redesign (2026-04-14) — CODE COMPLETE, PENDING DEPLOYMENT
+## Onboarding V2 Redesign (2026-04-14) — DEPLOYED
 
 ### What changed and why
 Research from sports science intake forms (NASM, NSCA), competitor apps (JuggernautAI, RP Hypertrophy, Caliber), and coaching best practices identified 17 missing profile fields critical for AI plan quality. The old 5-step onboarding (goal, body stats, experience, schedule, lifestyle) produced generic AI prompts. The new 6-step flow (8 for elite) collects training history depth, movement quality proxies, goal specificity, exercise preferences, and sport phasing — enabling the AI to make precise programming decisions like percentage-based loading, re-introduction phases, and volume ceilings.
@@ -64,7 +64,7 @@ Research from sports science intake forms (NASM, NSCA), competitor apps (Juggern
 
 | File | Change |
 |------|--------|
-| `backend/migrations/005_onboarding_v2.sql` | **NEW FILE**. Adds 15 nullable columns to profiles table, 2 to users table, plus CHECK constraints. **NOT YET APPLIED TO NEON DB.** |
+| `backend/migrations/005_onboarding_v2.sql` | **NEW FILE**. Adds 15 nullable columns to profiles table, 2 to users table, plus CHECK constraints. **APPLIED to Neon DB on 2026-04-14.** |
 | `backend/models/profile.py` | Added 15 new Column definitions (training_age_years, training_recency, goal_sub_category, body_fat_est, goal_deadline, injury_ortho_history, current_pain_level, chair_stand_proxy, overhead_reach_proxy, training_days_specific, exercise_blacklist, protein_intake_check, current_max_bench/squat/deadlift). New imports: Boolean, Date, JSONB. |
 | `backend/models/user.py` | Added sport_phase (String) + sport_weekly_hours (Integer) columns. Added Integer import. |
 | `backend/routes/profile.py` | Full rewrite. 17 new Optional fields on ProfileCreate/ProfileResponse. New StrengthBenchmark Pydantic model. 7 new validation sets (VALID_TRAINING_RECENCY, VALID_GOAL_SUB_CATEGORY, VALID_BODY_FAT_EST, VALID_PROTEIN_INTAKE, VALID_SPORT_PHASE, VALID_WEEKDAYS). Expanded VALID_JOB_ACTIVITY to include "moderate" and "heavy_labor". Expanded stress_level from ge=1,le=5 to ge=1,le=10. days_per_week auto-derived from training_days_specific. injuries auto-populated from injury_ortho_history for backward compat. New helper functions _validate_optional_enum() and _validate_weekdays(). |
@@ -118,67 +118,6 @@ Plus 4 elite-specific rules: in-season 60% volume reduction, sport hours as tota
 - job_activity old values "sedentary"/"light"/"active" still valid; "moderate"/"heavy_labor" added
 - profile_to_research_dict defaults all new fields ("unknown"/"none") → old profiles produce valid prompts
 - profile_hash changes → cache miss for old profiles → fresh research (desirable)
-
----
-
-## NEXT STEPS — Run these in a new chat
-
-### Step 1: Apply migration 005 to Neon DB
-
-```bash
-cd backend && source venv/bin/activate && python3 -c "
-from database import engine
-from sqlalchemy import text
-stmts = [s.strip() for s in open('migrations/005_onboarding_v2.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
-with engine.connect() as conn:
-    for s in stmts:
-        try:
-            conn.execute(text(s))
-            print(f'OK: {s[:80]}')
-        except Exception as e:
-            print(f'SKIP: {str(e)[:80]}')
-    conn.commit()
-print('Migration 005 complete')
-"
-```
-
-### Step 2: Verify backend starts
-
-```bash
-cd backend && source venv/bin/activate && python3 -c "from main import app; print(f'{len(app.routes)} routes — OK')"
-```
-
-Expected: `31 routes — OK`
-
-### Step 3: Verify frontend builds
-
-```bash
-cd frontend && npx next build
-```
-
-Expected: zero TypeScript errors, 11 pages generate.
-
-### Step 4: Browser test the onboarding flow
-
-Start both dev servers:
-```bash
-# Terminal 1
-cd backend && source venv/bin/activate && uvicorn main:app --reload --port 8000
-
-# Terminal 2
-cd frontend && npm run dev
-```
-
-Test flow:
-1. Sign up as a new free user → redirected to /onboarding
-2. Walk through all 6 steps (goal → body → safety → setup → lifestyle → preferences)
-3. Verify POST /profile succeeds with all new fields
-4. Verify /plan/loading triggers plan generation
-5. If possible, sign up as elite user and test all 8 steps including sport phase + weekly hours
-
-### Step 5: Commit changes
-
-When all tests pass, commit with a descriptive message covering the onboarding V2 redesign.
 
 ---
 
@@ -264,7 +203,7 @@ def my_route(request: Request, body: MyModel, ...):
 ### New migration files
 
 - `backend/migrations/004_unique_constraints_and_checks.sql` — **APPLIED to Neon DB**. 3 UNIQUE + 3 CHECK constraints.
-- `backend/migrations/005_onboarding_v2.sql` — **NOT YET APPLIED to Neon DB**. 15 columns on profiles, 2 on users, 3 CHECK constraints.
+- `backend/migrations/005_onboarding_v2.sql` — **APPLIED to Neon DB** (2026-04-14). 15 columns on profiles, 2 on users, 3 CHECK constraints. Note: the migration runner's `startswith('--')` filter skipped statements after comment lines — 8 missing columns were applied manually.
 
 ---
 
@@ -348,7 +287,7 @@ GET  /                 — health check
 
 10. **`RestTimer.tsx`, `Celebration.tsx` (extra components)**: Not in original component list. Added for gym UX improvements.
 
-11. **`003_indexes_and_cascade.sql`, `004_unique_constraints_and_checks.sql`, `005_onboarding_v2.sql` (extra migrations)**: Not in original migration plan. 003 adds performance indexes and CASCADE constraints. 004 adds UNIQUE + CHECK constraints. 005 adds onboarding V2 profile columns. **003 and 004 applied. 005 NOT YET APPLIED.**
+11. **`003_indexes_and_cascade.sql`, `004_unique_constraints_and_checks.sql`, `005_onboarding_v2.sql` (extra migrations)**: Not in original migration plan. 003 adds performance indexes and CASCADE constraints. 004 adds UNIQUE + CHECK constraints. 005 adds onboarding V2 profile columns. **All applied to Neon DB.**
 
 ---
 
@@ -404,7 +343,7 @@ fitai/
 │       ├── 002_phase8_chat.sql        # chat_messages table + indexes (APPLIED)
 │       ├── 003_indexes_and_cascade.sql # 8 indexes + CASCADE constraints (APPLIED)
 │       ├── 004_unique_constraints_and_checks.sql # 3 UNIQUE + 3 CHECK constraints (APPLIED)
-│       └── 005_onboarding_v2.sql      # 15 profile columns + 2 user columns + 3 CHECK constraints (NOT YET APPLIED)
+│       └── 005_onboarding_v2.sql      # 15 profile columns + 2 user columns + 3 CHECK constraints (APPLIED)
 │
 ├── frontend/
 │   ├── .env.local                     # NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -452,25 +391,8 @@ fitai/
 - **Connection**: See `backend/.env` for full URL
 - **Tables**: users, profiles, research_cache, plans, sessions, weekly_checkins, collective_results, adaptation_log, chat_messages
 - **Test users in DB**: `test-hack@example.com` (free tier, has profile), `test-normal@example.com` (free tier, no profile) — created during security testing
-- **Migrations applied**: 001, 002, 003, 004. **Migration 005 NOT YET APPLIED.**
-
-Run migration 005 via:
-```bash
-cd backend && source venv/bin/activate && python3 -c "
-from database import engine
-from sqlalchemy import text
-stmts = [s.strip() for s in open('migrations/005_onboarding_v2.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
-with engine.connect() as conn:
-    for s in stmts:
-        try:
-            conn.execute(text(s))
-            print(f'OK: {s[:80]}')
-        except Exception as e:
-            print(f'SKIP: {str(e)[:80]}')
-    conn.commit()
-print('Migration 005 complete')
-"
-```
+- **Migrations applied**: 001, 002, 003, 004, 005. All applied to Neon DB.
+- **profiles table**: 32 columns (17 original + 15 V2). **users table**: 10 columns (8 original + 2 V2).
 
 ---
 
@@ -501,22 +423,6 @@ cd backend && source venv/bin/activate && python3 -c "from main import app; prin
 
 # Verify frontend
 cd frontend && npm run build
-
-# Run migration 005 (NOT YET APPLIED)
-cd backend && source venv/bin/activate && python3 -c "
-from database import engine
-from sqlalchemy import text
-stmts = [s.strip() for s in open('migrations/005_onboarding_v2.sql').read().split(';') if s.strip() and not s.strip().startswith('--')]
-with engine.connect() as conn:
-    for s in stmts:
-        try:
-            conn.execute(text(s))
-            print(f'OK: {s[:80]}')
-        except Exception as e:
-            print(f'SKIP: {str(e)[:80]}')
-    conn.commit()
-print('Migration 005 complete')
-"
 ```
 
 ---
@@ -550,6 +456,10 @@ These are known gaps documented in the improvement plan but not yet implemented:
 - Security headers present on all responses (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection)
 - `sanitize_for_prompt()` strips `{}` from injection attempts
 - `build_elite_persona()` strips special chars from freetext sport names
-- All DB constraints (UNIQUE, CHECK) applied and verified on Neon (migrations 001-004)
-- **Migration 005 NOT YET APPLIED** — must be run before browser testing the new onboarding
-- **Browser testing of V2 onboarding PENDING** — needs migration 005 + both dev servers running
+- All DB constraints (UNIQUE, CHECK) applied and verified on Neon (migrations 001-005)
+- Migration 005 applied to Neon DB — all 17 new columns + 3 CHECK constraints verified present (profiles: 32 columns, users: 10 columns)
+- POST /profile with all V2 fields returns 200 with correct data (tested via curl: goal_sub_category, body_fat_est, training_days_specific, injury_ortho_history, exercise_blacklist, etc.)
+- GET /profile returns all 34 fields including V2 data
+- Backward compatibility verified: injuries auto-populated from injury_ortho_history, days_per_week auto-derived from training_days_specific length
+- All frontend pages return HTTP 200 (/onboarding, /settings, /dashboard, /plan/loading, etc.)
+- **Browser testing of V2 onboarding UI PENDING** — API layer verified end-to-end, visual/interactive flow needs manual browser walkthrough
