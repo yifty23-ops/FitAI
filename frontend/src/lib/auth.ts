@@ -14,7 +14,6 @@ export function clearToken(): void {
 
 interface TokenPayload {
   user_id: string;
-  tier: string;
   exp: number;
 }
 
@@ -52,16 +51,21 @@ export async function fetchUserMe(): Promise<UserMe | null> {
   if (!token) return null;
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(`${API_URL}/user/me`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     if (!res.ok) {
       if (res.status === 401) clearToken();
       return null;
     }
     return res.json();
   } catch {
+    clearTimeout(timeout);
     return null;
   }
 }

@@ -126,6 +126,7 @@ def get_chat_history(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    limit = min(limit, 100)
     # Elite-only gate for chat history
     if not check_feature(user, "coach_chat"):
         raise HTTPException(status_code=403, detail="Coach chat is an Elite-only feature.")

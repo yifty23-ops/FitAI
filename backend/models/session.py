@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, text
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
@@ -9,6 +9,7 @@ from database import Base
 
 class SessionLog(Base):
     __tablename__ = "sessions"
+    __table_args__ = (UniqueConstraint('plan_id', 'week_number', 'day_number', name='uq_session_plan_week_day'),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
     plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=False)

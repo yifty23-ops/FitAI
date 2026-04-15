@@ -49,6 +49,7 @@ def generate_plan(request: Request, user: User = Depends(get_current_user), db: 
 
 @plan_router.get("/")
 def list_plans(skip: int = 0, limit: int = 20, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    limit = min(limit, 100)
     plans = (
         db.query(Plan)
         .filter(Plan.user_id == user.id)
@@ -117,7 +118,7 @@ def get_plan(plan_id: str, user: User = Depends(get_current_user), db: Session =
 
 @plan_router.post("/{plan_id}/confirm")
 def confirm_plan(plan_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user.id).first()
+    plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user.id).with_for_update().first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     if plan.is_active:

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 PERSONAS = {
     "free": (
@@ -141,7 +141,7 @@ def check_plan_limit(user, db) -> bool:
         db.query(Plan)
         .filter(
             Plan.user_id == user.id,
-            Plan.created_at >= datetime.now() - timedelta(days=30),
+            Plan.created_at >= datetime.now(timezone.utc) - timedelta(days=30),
         )
         .count()
     )

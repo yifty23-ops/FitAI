@@ -82,10 +82,9 @@ class UserMeResponse(BaseModel):
 
 # --- JWT helpers ---
 
-def create_token(user_id: str, tier: str) -> str:
+def create_token(user_id: str) -> str:
     payload = {
         "user_id": user_id,
-        "tier": tier,
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
@@ -118,12 +117,12 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Email already registered")
 
     hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode("utf-8")
-    user = User(email=req.email, password_hash=hashed, tier=req.tier)
+    user = User(email=req.email, password_hash=hashed, tier="free")
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    token = create_token(str(user.id), user.tier)
+    token = create_token(str(user.id))
     return AuthResponse(token=token, user_id=str(user.id), tier=user.tier)
 
 
@@ -154,7 +153,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     if not bcrypt.checkpw(req.password.encode(), user.password_hash.encode()):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_token(str(user.id), user.tier)
+    token = create_token(str(user.id))
     return AuthResponse(token=token, user_id=str(user.id), tier=user.tier)
 
 

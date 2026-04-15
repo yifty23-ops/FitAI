@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -77,6 +77,20 @@ class ProfileCreate(BaseModel):
     sport_phase: Optional[str] = None
     sport_weekly_hours: Optional[int] = Field(default=None, ge=0, le=40)
 
+    @field_validator("equipment")
+    @classmethod
+    def validate_equipment(cls, v: list[str]) -> list[str]:
+        if len(v) > 30:
+            raise ValueError("Maximum 30 equipment items")
+        return [item[:100] for item in v]
+
+    @field_validator("exercise_blacklist")
+    @classmethod
+    def validate_blacklist(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v and len(v) > 50:
+            raise ValueError("Maximum 50 blacklist items")
+        return [item[:100] for item in v] if v else v
+
 
 class ProfileResponse(BaseModel):
     id: str
@@ -115,6 +129,7 @@ class ProfileResponse(BaseModel):
     current_max_deadlift: Optional[dict] = None
     sport_phase: Optional[str] = None
     sport_weekly_hours: Optional[int] = None
+    plan_stale: Optional[bool] = None
 
 
 def _validate_optional_enum(value: Optional[str], valid_set: set, field_name: str) -> None:

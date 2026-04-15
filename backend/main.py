@@ -14,9 +14,19 @@ MAX_BODY_SIZE = 1_048_576  # 1 MB
 class LimitBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_BODY_SIZE:
+        if content_length:
+            try:
+                if int(content_length) > MAX_BODY_SIZE:
+                    return JSONResponse(
+                        status_code=413, content={"detail": "Request body too large"}
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400, content={"detail": "Invalid Content-Length header"}
+                )
+        elif request.method in ("POST", "PUT", "PATCH"):
             return JSONResponse(
-                status_code=413, content={"detail": "Request body too large"}
+                status_code=411, content={"detail": "Content-Length required"}
             )
         return await call_next(request)
 from routes.auth import auth_router, user_router
@@ -35,7 +45,6 @@ app = FastAPI(title="FitAI")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.add_middleware(LimitBodySizeMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url],
@@ -43,6 +52,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(LimitBodySizeMiddleware)
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(user_router, prefix="/user", tags=["user"])

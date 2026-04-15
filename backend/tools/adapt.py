@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
+from tools.research import sanitize_for_prompt
 from models.adaptation import AdaptationLog
 from models.checkin import WeeklyCheckin
 from models.plan import Plan
@@ -206,7 +208,7 @@ def adapt_plan(plan: Plan, user: User, db: Session) -> dict:
             "day_number": s.day_number,
             "logged_exercises": s.logged_exercises,
             "pre_readiness": s.pre_readiness,
-            "notes": s.notes,
+            "notes": sanitize_for_prompt(s.notes, max_length=300) if s.notes else None,
         }
         for s in sessions
     ]
@@ -225,7 +227,7 @@ def adapt_plan(plan: Plan, user: User, db: Session) -> dict:
         "mood_score": checkin.mood_score,
         "sleep_avg": checkin.sleep_avg,
         "weight_kg": checkin.weight_kg,
-        "notes": checkin.notes,
+        "notes": sanitize_for_prompt(checkin.notes, max_length=300) if checkin.notes else None,
     }
 
     # Get cached research protocols
@@ -257,7 +259,8 @@ def adapt_plan(plan: Plan, user: User, db: Session) -> dict:
         logger.error("Adaptation response missing 'adjustments' key")
         return {"adapted": False, "reason": "Invalid adaptation response"}
 
-    # Apply adjustments to plan_data
+    # Apply adjustments to plan_data (with rollback safety)
+    plan_data_backup = copy.deepcopy(plan.plan_data)
     _apply_adjustments(plan, plan.current_week, adaptations.get("adjustments", []))
 
     # Save adaptation log
@@ -269,7 +272,13 @@ def adapt_plan(plan: Plan, user: User, db: Session) -> dict:
         flags=adaptations.get("flags"),
     )
     db.add(log)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        plan.plan_data = plan_data_backup
+        flag_modified(plan, "plan_data")
+        db.rollback()
+        raise
 
     logger.info(
         "Adaptation applied for plan %s week %d: %d adjustments",

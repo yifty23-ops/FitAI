@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getUser } from "@/lib/auth";
+import { getUser, fetchUserMe } from "@/lib/auth";
 import { api, LONG_TIMEOUT_MS } from "@/lib/api";
 import type { Tier } from "@/lib/tiers";
 
@@ -84,14 +84,16 @@ export default function PlanLoadingPage() {
       return;
     }
 
-    const userTier = user.tier as Tier;
-    setTier(userTier);
-
-    if (userTier !== "elite") {
-      setMessages(MESSAGES[userTier]);
-    }
-
     async function generate() {
+      const me = await fetchUserMe();
+      if (!me) { router.push("/"); return; }
+      const userTier = me.tier as Tier;
+      setTier(userTier);
+
+      if (userTier !== "elite") {
+        setMessages(MESSAGES[userTier]);
+      }
+
       // For elite: fetch profile to get sport name for messages
       if (userTier === "elite") {
         try {

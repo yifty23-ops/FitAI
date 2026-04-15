@@ -120,6 +120,7 @@ def list_sessions(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    limit = min(limit, 100)
     plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user.id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -252,6 +253,8 @@ def _extract_day_exercises(plan_data: dict, week: int, day: int) -> list | None:
         weeks = plan_data
 
     week_data = next((w for w in weeks if w.get("week_number") == week), None)
+    if not week_data and 0 <= week - 1 < len(weeks):
+        week_data = weeks[week - 1]
     if not week_data:
         return None
     day_data = next(

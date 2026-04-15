@@ -163,8 +163,8 @@ def next_question(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if body.tier not in VALID_TIERS:
-        raise HTTPException(status_code=400, detail="Invalid tier")
+    # Always use server-verified tier from DB, never trust client-provided tier
+    tier = user.tier
 
     # Sanitize all answers
     answers = _sanitize_answers(body.answers_so_far)
@@ -174,7 +174,7 @@ def next_question(
     try:
         result = client.generate_onboarding_question(
             answers_so_far=answers,
-            tier=body.tier,
+            tier=tier,
             force_complete=body.force_complete,
         )
     except Exception as e:
@@ -188,7 +188,7 @@ def next_question(
 
     # Safety net: if AI says done, verify all required fields are present
     if result["done"]:
-        missing = _check_completeness(answers, body.tier)
+        missing = _check_completeness(answers, tier)
         if missing:
             logger.warning(
                 "AI signaled done but missing fields: %s. Asking for them.", missing
@@ -197,7 +197,7 @@ def next_question(
             try:
                 override_result = client.generate_onboarding_question(
                     answers_so_far=answers,
-                    tier=body.tier,
+                    tier=tier,
                     force_complete=False,
                 )
                 override_result = _validate_ai_response(override_result)
@@ -216,7 +216,7 @@ def next_question(
                 return result
 
         # Build the profile data
-        profile_data = _build_profile_data(answers, body.tier)
+        profile_data = _build_profile_data(answers, tier)
         return {
             "done": True,
             "message": result.get("message", "All set! Let's build your plan."),

@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -26,8 +27,8 @@ def sanitize_for_prompt(text: str, max_length: int = 500) -> str:
     text = text[:max_length]
     # Remove control characters and null bytes
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
-    # Strip common prompt-injection delimiters/patterns
-    text = text.replace("{", "").replace("}", "")
+    # Escape braces so .format() treats them as literals (preserves user data like "ACL {left knee}")
+    text = text.replace("{", "{{").replace("}", "}}")
     return text
 
 
@@ -126,10 +127,11 @@ def research_for_profile(user: User, profile: Profile, db: Session) -> dict:
     # 1. Compute tier-aware hash
     profile_hash = compute_profile_hash(profile, tier)
 
-    # 2. Check cache (keyed by hash + tier)
+    # 2. Check cache (keyed by hash + tier, 30-day TTL)
+    cache_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     cached = db.query(ResearchCache).filter_by(
         profile_hash=profile_hash, tier=tier
-    ).first()
+    ).filter(ResearchCache.created_at >= cache_cutoff).first()
     if cached:
         result = {
             "protocols": cached.protocols,
@@ -151,7 +153,12 @@ def research_for_profile(user: User, profile: Profile, db: Session) -> dict:
     if "protocols" not in result or "contraindications" not in result:
         raise ValueError("Research result missing required keys: protocols, contraindications")
 
-    # 5. Cache with tier tag (collective data excluded from cache)
+    # 5. Delete expired cache entry before insert (unique constraint on profile_hash+tier)
+    db.query(ResearchCache).filter_by(
+        profile_hash=profile_hash, tier=tier
+    ).filter(ResearchCache.created_at < cache_cutoff).delete()
+
+    # 6. Cache with tier tag (collective data excluded from cache)
     entry = ResearchCache(
         profile_hash=profile_hash,
         tier=tier,

@@ -5,6 +5,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from config import settings
+from database import SessionLocal
 from models.plan import Plan
 from models.profile import Profile
 from models.user import User
@@ -62,21 +63,29 @@ def _get_persona_display(tier: str, sport: str | None) -> str:
 
 
 def generate_plan_for_profile(user: User, profile: Profile, db: Session) -> dict:
-    """Full plan generation pipeline: research -> generate -> save."""
+    """Full plan generation pipeline: research -> generate -> save.
+
+    Releases the DB connection before the long-running Claude API call
+    to prevent connection pool exhaustion under concurrent load.
+    """
     tier = user.tier
     sport = user.sport
     competition_date = str(user.competition_date) if user.competition_date else None
     mesocycle_weeks = TIER_FEATURES[tier]["max_mesocycle_weeks"]
+    user_id = user.id
 
-    # 1. Run research first (uses cache if available)
-    logger.info("Running research for user %s (tier=%s)", user.id, tier)
+    # Phase 1: DB reads + research (research uses db for cache lookup/write)
+    logger.info("Running research for user %s (tier=%s)", user_id, tier)
     research = research_for_profile(user, profile, db)
-
-    # 2. Build profile dict for prompt
     profile_dict = profile_to_research_dict(profile, user)
+    profile_snapshot = _build_profile_snapshot(profile)
+    persona_used = _get_persona_display(tier, sport)
 
-    # 3. Call Claude for plan generation
-    logger.info("Generating plan for user %s (tier=%s, weeks=%d)", user.id, tier, mesocycle_weeks)
+    # Release DB connection before long Claude call to prevent pool exhaustion
+    db.close()
+
+    # Phase 2: Claude plan generation (no DB connection held)
+    logger.info("Generating plan for user %s (tier=%s, weeks=%d)", user_id, tier, mesocycle_weeks)
     client = ClaudeClient(settings.anthropic_api_key)
     result = client.generate_plan(
         profile=profile_dict,
@@ -86,7 +95,7 @@ def generate_plan_for_profile(user: User, profile: Profile, db: Session) -> dict
         competition_date=competition_date,
     )
 
-    # 4. Validate required keys and plan structure
+    # Validate required keys and plan structure
     if "plan" not in result and "weeks" not in result:
         raise ValueError("Plan generation result missing required keys: plan or weeks")
     if "nutrition" not in result:
@@ -102,7 +111,6 @@ def generate_plan_for_profile(user: User, profile: Profile, db: Session) -> dict
         weeks = []
     if not weeks or not isinstance(weeks, list):
         raise ValueError("Plan has no weeks data")
-    # Validate each week has days
     for i, week in enumerate(weeks):
         if not isinstance(week, dict):
             raise ValueError(f"Week {i+1} is not a valid object")
@@ -110,36 +118,44 @@ def generate_plan_for_profile(user: User, profile: Profile, db: Session) -> dict
         if not isinstance(days, list) or len(days) == 0:
             raise ValueError(f"Week {i+1} has no training days")
 
-    # 5. Lock user row to prevent concurrent plan generation, then clean up drafts
-    db.query(User).filter(User.id == user.id).with_for_update().first()
-    db.query(Plan).filter(
-        Plan.user_id == user.id,
-        Plan.is_active == False,
-    ).delete()
+    # Normalized plan data — use canonical shape regardless of Claude's output format
+    normalized_plan_data = {"weeks": weeks}
 
-    # 6. Create plan record (as draft — user must confirm to activate)
-    persona_used = _get_persona_display(tier, sport)
-    plan = Plan(
-        user_id=user.id,
-        tier_at_creation=tier,
-        profile_snapshot=_build_profile_snapshot(profile),
-        mesocycle_weeks=mesocycle_weeks,
-        current_week=1,
-        phase="accumulation",
-        plan_data=result["plan"],
-        nutrition=result["nutrition"],
-        persona_used=persona_used,
-        is_active=False,
-    )
-    db.add(plan)
-    db.commit()
-    db.refresh(plan)
+    # Phase 3: Re-acquire DB connection for writes
+    save_db = SessionLocal()
+    try:
+        save_db.query(User).filter(User.id == user_id).with_for_update().first()
+        save_db.query(Plan).filter(
+            Plan.user_id == user_id,
+            Plan.is_active == False,
+        ).delete()
 
-    logger.info("Plan %s created for user %s", plan.id, user.id)
+        plan = Plan(
+            user_id=user_id,
+            tier_at_creation=tier,
+            profile_snapshot=profile_snapshot,
+            mesocycle_weeks=mesocycle_weeks,
+            current_week=1,
+            phase="accumulation",
+            plan_data=normalized_plan_data,
+            nutrition=result["nutrition"],
+            persona_used=persona_used,
+            is_active=False,
+        )
+        save_db.add(plan)
+        save_db.commit()
+        save_db.refresh(plan)
+        plan_id = str(plan.id)
+        logger.info("Plan %s created for user %s", plan_id, user_id)
+    except Exception:
+        save_db.rollback()
+        raise
+    finally:
+        save_db.close()
 
     return {
-        "plan_id": str(plan.id),
-        "plan": result["plan"],
+        "plan_id": plan_id,
+        "plan": normalized_plan_data,
         "nutrition": result["nutrition"],
         "persona_used": persona_used,
         "tier": tier,

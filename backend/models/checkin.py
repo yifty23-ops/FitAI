@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, text
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -9,6 +9,7 @@ from database import Base
 
 class WeeklyCheckin(Base):
     __tablename__ = "weekly_checkins"
+    __table_args__ = (UniqueConstraint('plan_id', 'week_number', name='uq_checkin_plan_week'),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
     plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=False)

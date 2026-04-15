@@ -100,7 +100,7 @@ export default function RestTimer({
 
         <button
           type="button"
-          onClick={() => setSeconds((prev) => prev + 30)}
+          onClick={() => { setSeconds((prev) => prev + 30); if (!running) setRunning(true); }}
           className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-xs font-medium text-zinc-300 hover:bg-zinc-700 transition-colors"
         >
           +30s

@@ -131,7 +131,7 @@ def apply_chat_modifications(plan: Plan, modifications: dict, db: Session) -> No
         logger.warning("Unknown chat modification type: %s", mod_type)
         return
 
-    db.commit()
+    # Caller (routes/chat.py) handles db.commit() — keep modifications in same transaction as chat message save
 
 
 def _get_today_session(plan: Plan, db: Session) -> str:

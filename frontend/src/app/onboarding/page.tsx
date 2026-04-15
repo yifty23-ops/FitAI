@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getUser } from "@/lib/auth";
+import { getUser, fetchUserMe } from "@/lib/auth";
 import { Tier } from "@/lib/tiers";
 import OnboardingChat from "@/components/OnboardingChat";
 
@@ -16,7 +16,10 @@ export default function OnboardingPage() {
       router.push("/");
       return;
     }
-    setTier(user.tier as Tier);
+    fetchUserMe().then((me) => {
+      if (!me) { router.push("/"); return; }
+      setTier(me.tier as Tier);
+    });
   }, [router]);
 
   if (!tier) return null;

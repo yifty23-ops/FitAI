@@ -80,13 +80,13 @@ def create_checkin(
         raise HTTPException(status_code=409, detail="Check-in already submitted for this week")
 
     # Try to advance the week (within the same transaction)
-    maybe_advance_week(plan, user, db)
+    should_adapt = maybe_advance_week(plan, user, db)
 
     db.commit()
     db.refresh(checkin)
 
     # Run adaptation after commit if week was advanced (needs committed data)
-    if getattr(plan, "_run_adaptation_after_commit", False):
+    if should_adapt:
         from tools.adapt import adapt_plan
         try:
             adapt_plan(plan, user, db)
@@ -109,6 +109,7 @@ def list_checkins(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    limit = min(limit, 100)
     plan = db.query(Plan).filter(Plan.id == plan_id, Plan.user_id == user.id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -139,16 +140,17 @@ def list_checkins(
 
 # --- Week advancement ---
 
-def maybe_advance_week(plan: Plan, user: User, db: Session) -> None:
+def maybe_advance_week(plan: Plan, user: User, db: Session) -> bool:
     """Advance current_week when all sessions + check-in are done for the week.
 
+    Returns True if adaptation should run after commit.
     NOTE: Caller is responsible for db.commit(). This function modifies state
     within the caller's transaction to avoid race conditions.
     """
     # Lock the plan row to prevent race conditions from concurrent requests
     plan = db.query(Plan).filter(Plan.id == plan.id).with_for_update().first()
     if not plan:
-        return
+        return False
     week = plan.current_week
 
     # Count planned days from plan_data
@@ -170,11 +172,11 @@ def maybe_advance_week(plan: Plan, user: User, db: Session) -> None:
         current_week_data = weeks_data[week - 1]
 
     if not current_week_data or not isinstance(current_week_data, dict):
-        return
+        return False
 
     planned_days = len(current_week_data.get("days", []))
     if planned_days == 0:
-        return
+        return False
 
     # Count completed sessions for this week
     completed = db.query(SessionLog).filter(
@@ -188,10 +190,11 @@ def maybe_advance_week(plan: Plan, user: User, db: Session) -> None:
         logger.info("Plan %s advanced to week %d", plan.id, plan.current_week)
 
         # Milestone detection for collective learning (Phase 7)
-        if check_feature(user, "collective") and plan.current_week % 3 == 0:
+        # Use pre-increment value (current_week - 1) to check completed week
+        if check_feature(user, "collective") and (plan.current_week - 1) % 3 == 0:
             plan.milestone_pending = True
             logger.info("Milestone pending for plan %s at week %d", plan.id, plan.current_week)
 
         # Tier-gated adaptation hook (Phase 6) — runs after commit in caller
-        # Adaptation needs committed data so we schedule it post-commit
-        plan._run_adaptation_after_commit = check_feature(user, "adaptation")
+        return check_feature(user, "adaptation")
+    return False

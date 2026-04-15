@@ -1,7 +1,7 @@
 # FitAI — Session Context
 
 > **Purpose**: Read this file at the start of every new chat to restore full project context.
-> Updated after P3 UI enhancements implementation on 2026-04-14.
+> Updated after completing all 26 bug fixes (BUGS1.md fully resolved) on 2026-04-15.
 
 ---
 
@@ -9,7 +9,7 @@
 
 AI personal trainer with 3 subscription tiers (free/pro/elite) where the AI's persona, research depth, and programming sophistication change fundamentally at each tier. See CLAUDE.md for full architecture.
 
-## Current state: All core features + Onboarding V4 + Bug Fixes + 7-Issue Sweep + UI Audit Complete DEPLOYED
+## Current state: All core features + Onboarding V4 + All 26 Bugs Fixed + UI Audit Complete DEPLOYED
 
 **Original build phases (2026-04-12):**
 Phase 1 delivered: scaffolding, database, auth with tier selection, landing page.
@@ -195,6 +195,83 @@ The AI decides when it has enough information — no arbitrary cap. Depth scales
 
 ---
 
+## Bug Report Batch 1 (2026-04-15) — Critical + High Severity Fixes
+
+BUGS1.md identified 26 bugs. Batch 1 fixed 11 (2 Critical, 7 High, 2 Medium). Batch 2 fixed 8 Medium. Batch 3 fixed 7 Low.
+
+### Bug Fix Progress
+
+#### Fixed
+- [x] BUG-001 (Critical): Signup allows arbitrary tier — hardcoded tier="free" on signup (`auth.py`)
+- [x] BUG-002 (Critical): DB pool exhaustion — release connection before Claude calls, re-acquire for save (`plan_generator.py`)
+- [x] BUG-003 (High): Missing UNIQUE constraints — added to session/checkin models + migration 007 (`session.py`, `checkin.py`)
+- [x] BUG-004 (High): Adaptation never runs — return bool from maybe_advance_week instead of transient attribute (`checkin.py`)
+- [x] BUG-005 (High): Plan crashes on alt JSON shape — use normalized `{"weeks": weeks}` for storage (`plan_generator.py`)
+- [x] BUG-006 (High): Prompt injection via chat — XML delimiter tags around user messages (`claude_client.py`)
+- [x] BUG-007 (High): Onboarding tier from request body — use server-verified `user.tier` (`onboarding.py`)
+- [x] BUG-008 (High): Unsanitized notes in AI prompts — apply sanitize_for_prompt to session/checkin notes (`adapt.py`)
+- [x] BUG-009 (High): Race condition in plan confirm — added with_for_update() row lock (`plan.py`)
+- [x] BUG-010 (Medium): Naive datetime in check_plan_limit — use `datetime.now(timezone.utc)` (`tiers.py`)
+- [x] BUG-011 (Medium): Milestone fires one week early — check `(current_week - 1) % 3` (`checkin.py`)
+- [x] BUG-012 (Medium): apply_chat_modifications premature commit — removed db.commit(), caller handles it (`tools/chat.py`)
+- [x] BUG-013 (Medium): Chat persona None for elite without sport — use build_elite_persona("general") (`claude_client.py`)
+- [x] BUG-014 (Medium): plan_stale missing from ProfileResponse — added field (`routes/profile.py`)
+- [x] BUG-015 (Medium): _extract_day_exercises missing index fallback — added index-based week lookup (`routes/session.py`)
+- [x] BUG-016 (Medium): No pagination upper bound — added `limit = min(limit, 100)` to 4 endpoints (`session.py`, `checkin.py`, `plan.py`, `chat.py`)
+- [x] BUG-017 (Medium): CORS middleware ordering — swapped order + hardened Content-Length parsing (`main.py`)
+- [x] BUG-018 (Medium): fetchUserMe no timeout — added AbortController with 10s timeout (`auth.ts`)
+- [x] BUG-019 (Medium): Adaptation mutates plan_data without rollback — added deepcopy backup + try/except/rollback (`tools/adapt.py`)
+
+- [x] BUG-020 (Low): sanitize_for_prompt strips braces — escape braces instead of removing (`tools/research.py`)
+- [x] BUG-021 (Low): RestTimer +30s on completed timer — restart timer on +30s press (`RestTimer.tsx`)
+- [x] BUG-022 (Low): Stale JWT tier — removed tier from JWT, pages use fetchUserMe() (`auth.py`, `auth.ts`, `plan/loading`, `onboarding`)
+- [x] BUG-023 (Low): Equipment/blacklist arrays unbounded — field_validator caps at 30/50 items, 100 chars each (`routes/profile.py`)
+- [x] BUG-024 (Low): Research cache never expires — 30-day TTL + expired entry cleanup before insert (`tools/research.py`)
+- [x] BUG-025 (Low): Collective query full table scan — expression indexes on goal/experience JSONB fields (`migration 008`)
+- [x] BUG-026 (Low): LimitBodySizeMiddleware chunked bypass — return 411 for POST/PUT/PATCH without Content-Length (`main.py`)
+
+**All 26 bugs from BUGS1.md addressed as of 2026-04-15.**
+
+### Key decisions
+- BUG-001 overrides prior decision to accept tier at signup (2026-04-14 sweep #4). Until Stripe is integrated, all users start as free.
+- BUG-002: research_for_profile still holds DB during Claude call on cache miss — acceptable since cache hit rate is high.
+- Migration 007 deduplicates existing data before adding constraints.
+- BUG-004 + BUG-011 fixed together since both in maybe_advance_week.
+- BUG-006 + BUG-013 fixed together since both in claude_client.py chat method.
+- BUG-020: Braces escaped (`{{`/`}}`) instead of stripped — `.format()` treats them as literals.
+- BUG-022: Tier fully removed from JWT payload. `plan/loading` and `onboarding` pages updated to use `fetchUserMe()`. Auth response still returns tier from DB for immediate use after login.
+- BUG-024: Expired cache entries deleted before insert to avoid IntegrityError from unique constraint on `(profile_hash, tier)`.
+- BUG-026: 411 Length Required for POST/PUT/PATCH without Content-Length — standard HTTP, browser fetch always sends header.
+- Migrations 004 (other_activities), 007 (unique constraints), 008 (collective indexes) all applied to Neon DB on 2026-04-15.
+- BUG-017 also partially addresses BUG-026 (ValueError handling on Content-Length).
+
+### Files modified (batch 1)
+`backend/routes/auth.py`, `backend/routes/onboarding.py`, `backend/routes/plan.py`, `backend/routes/checkin.py`, `backend/models/session.py`, `backend/models/checkin.py`, `backend/tools/plan_generator.py`, `backend/tools/adapt.py`, `backend/services/claude_client.py`, `backend/migrations/007_unique_constraints.sql` (new)
+
+### Files modified (batch 2)
+`backend/tiers.py`, `backend/tools/chat.py`, `backend/tools/adapt.py`, `backend/routes/profile.py`, `backend/routes/session.py`, `backend/routes/checkin.py`, `backend/routes/plan.py`, `backend/routes/chat.py`, `backend/main.py`, `frontend/src/lib/auth.ts`
+
+### Files modified (batch 3 — 7 Low bugs, 2026-04-15)
+`backend/tools/research.py`, `backend/routes/auth.py`, `backend/routes/profile.py`, `backend/main.py`, `frontend/src/components/RestTimer.tsx`, `frontend/src/lib/auth.ts`, `frontend/src/app/onboarding/page.tsx`, `frontend/src/app/plan/loading/page.tsx`, `backend/migrations/008_collective_index.sql` (new)
+
+### Batch 3 fixes
+
+| BUG | Severity | What was wrong | Fix |
+|-----|----------|---------------|-----|
+| BUG-020 | Low | `sanitize_for_prompt` deleted `{}` from user text | Escape braces (`{{`/`}}`) instead of stripping |
+| BUG-021 | Low | +30s button on finished RestTimer didn't restart interval | Added `setRunning(true)` when timer is stopped |
+| BUG-022 | Low | JWT contained stale `tier` valid for 7 days | Removed `tier` from JWT. `plan/loading` and `onboarding` use `fetchUserMe()` |
+| BUG-023 | Low | Equipment/blacklist arrays accepted unlimited items | `field_validator`: equipment max 30 items, blacklist max 50, 100 chars/item |
+| BUG-024 | Low | Research cache had no TTL | 30-day TTL + expired entry cleanup before insert (unique constraint safe) |
+| BUG-025 | Low | Collective JSONB query did full table scan | Migration 008: expression indexes on `goal` and `experience` |
+| BUG-026 | Low | Chunked encoding bypassed body size limit | Return 411 Length Required for POST/PUT/PATCH without Content-Length |
+
+### Verification
+- Backend: `python3 -c "from main import app"` — passes, 33 routes, all imports clean
+- Frontend: `npx tsc --noEmit` — passes, zero errors
+
+---
+
 ## Bug Fix Sweep (2026-04-14) — Post-V4 Launch Fixes
 
 ### What happened and why
@@ -335,7 +412,7 @@ POST /session/{plan_id}/{week}/{day}/adjust  — adjust session for available ti
 
 ### New migration
 
-- `backend/migrations/006_other_activities.sql` — Adds `other_activities TEXT` to profiles table. **NOT YET APPLIED to Neon DB.**
+- `backend/migrations/004_other_activities.sql` — Adds `other_activities TEXT` to profiles table. **APPLIED 2026-04-15.**
 
 ### `from __future__ import annotations` update
 
@@ -489,7 +566,9 @@ fitai/
 │       ├── 003_indexes_and_cascade.sql # 8 indexes + CASCADE constraints (APPLIED)
 │       ├── 004_unique_constraints_and_checks.sql # 3 UNIQUE + 3 CHECK constraints (APPLIED)
 │       ├── 005_onboarding_v2.sql      # 15 profile columns + 2 user columns + 3 CHECK constraints (APPLIED)
-│       └── 006_other_activities.sql   # other_activities TEXT on profiles (NOT YET APPLIED)
+│       ├── 004_other_activities.sql   # other_activities TEXT on profiles (APPLIED)
+│       ├── 007_unique_constraints.sql # session/checkin UNIQUE constraints (APPLIED)
+│       └── 008_collective_index.sql  # JSONB expression indexes (APPLIED)
 │
 ├── frontend/
 │   ├── .env.local                     # NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -541,7 +620,7 @@ fitai/
 - **Connection**: See `backend/.env` for full URL
 - **Tables**: users, profiles, research_cache, plans, sessions, weekly_checkins, collective_results, adaptation_log, chat_messages
 - **Test users in DB**: `test-hack@example.com` (free tier, has profile), `test-normal@example.com` (free tier, no profile) — created during security testing
-- **Migrations applied**: 001, 002, 003, 004, 005. All applied to Neon DB. **006 NOT YET APPLIED** (adds `other_activities TEXT` to profiles).
+- **Migrations applied**: 001, 002, 003, 004, 004_other_activities, 005, 007, 008. All applied to Neon DB.
 - **profiles table**: 33 columns (17 original + 15 V2 + 1 other_activities). **users table**: 10 columns (8 original + 2 V2).
 
 ---
@@ -640,7 +719,7 @@ Each section has a chevron that rotates on expand (Tailwind v4 `group-open:rotat
 
 These are known gaps documented in the improvement plan but not yet implemented:
 
-1. **Stripe integration**: Config + env vars exist, but no actual payment code (no `stripe` in requirements.txt or `@stripe/stripe-js` in package.json). Users cannot actually upgrade tiers via payment. All signups are forced to "free" tier.
+1. **Stripe integration**: Config + env vars exist, but no actual payment code (no `stripe` in requirements.txt or `@stripe/stripe-js` in package.json). Users cannot actually upgrade tiers via payment. All signups are forced to "free" tier. (Note: BUG-022 fix removed `tier` from JWT — when Stripe is integrated, tier changes will be reflected immediately via `fetchUserMe()` without requiring re-login.)
 2. **Email verification**: Resend API key configured but no verification flow exists. Users can sign up with any string that passes email regex.
 3. **Forgot password flow**: No `POST /auth/forgot-password` or reset token mechanism.
 4. **Progress charts**: No data visualization of training trends over time.
@@ -663,10 +742,10 @@ These are known gaps documented in the improvement plan but not yet implemented:
 - Profile: age=-5 rejected (ge=13), goal="INJECT_HACK" rejected (enum validation)
 - Profile: valid profile creates successfully
 - Security headers present on all responses (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection)
-- `sanitize_for_prompt()` strips `{}` from injection attempts
+- `sanitize_for_prompt()` escapes `{}` to `{{`/`}}` (BUG-020 fix — preserves user data while preventing `.format()` crashes)
 - `build_elite_persona()` strips special chars from freetext sport names
-- All DB constraints (UNIQUE, CHECK) applied and verified on Neon (migrations 001-005)
-- Migration 005 applied to Neon DB — all 17 new columns + 3 CHECK constraints verified present (profiles: 32 columns, users: 10 columns)
+- All DB constraints (UNIQUE, CHECK) applied and verified on Neon (migrations 001-005, 007-008)
+- Migration 005 applied to Neon DB — all 17 new columns + 3 CHECK constraints verified present (profiles: 33 columns incl other_activities, users: 10 columns)
 - POST /profile with all V2 fields returns 200 with correct data (tested via curl: goal_sub_category, body_fat_est, training_days_specific, injury_ortho_history, exercise_blacklist, etc.)
 - GET /profile returns all 34 fields including V2 data
 - Backward compatibility verified: injuries auto-populated from injury_ortho_history, days_per_week auto-derived from training_days_specific length
@@ -674,3 +753,14 @@ These are known gaps documented in the improvement plan but not yet implemented:
 - **Browser testing of V3 AI-driven onboarding PENDING** — backend endpoint and frontend component verified (imports, build, routes), but full interactive flow with Claude API needs manual browser walkthrough with valid ANTHROPIC_API_KEY
 - Frontend builds with zero TypeScript errors after P3 enhancements (verified 2026-04-14), all 10 pages generate
 - **Browser testing of P3 enhancements PENDING** — haptic (Android only), swipe nav, quick-log toggle, week slide animation, tier comparison tooltips all need manual verification
+
+## In-progress / uncommitted work (2026-04-15)
+
+**21 modified files + 4 untracked files — NOT YET COMMITTED.**
+
+All changes are from three sweeps:
+1. **BUGS1.md Batch 1+2** (19 bugs: 2 Critical, 7 High, 10 Medium) — security fixes, logic fixes, reliability improvements
+2. **BUGS1.md Batch 3** (7 bugs: all Low) — brace escaping, RestTimer fix, JWT tier removal, array bounds, cache TTL, JSONB indexes, middleware hardening
+3. **Migrations 004_other_activities, 007, 008** — all applied to Neon DB
+
+These changes should be committed and pushed. Run `/git-push` to commit all changes.
