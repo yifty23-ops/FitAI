@@ -70,7 +70,10 @@ SPORT_DEMANDS = {
     "cycling": (
         "leg strength-endurance, power-to-weight ratio, core stability for aero "
         "position, and the balance between gym work and on-bike volume. You understand "
-        "FTP-based training zones and how strength training transfers to cycling power."
+        "FTP-based training zones and how heavy strength training (≥80% 1RM) transfers "
+        "to cycling performance primarily through cycling efficiency and anaerobic power "
+        "gains — not VO2max or metabolic adaptations — making maximal strength emphasis "
+        "more effective than hypertrophy-focused gym work for endurance cyclists."
     ),
     "general": (
         "broad physical preparedness, injury resilience, and progressive overload for "
