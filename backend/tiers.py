@@ -19,10 +19,12 @@ PERSONAS = {
 SPORT_DEMANDS = {
     "swimming": (
         "shoulder stability and mobility, rotational core power, lat and posterior "
-        "chain strength, kick power through hip flexor and quad development, and the "
-        "critical balance between dryland training and pool volume. You understand "
-        "taper protocols for competition peaks and how to periodize strength work "
-        "around high-yardage training blocks."
+        "chain strength, kick power through ankle plantar flexion and hip flexor "
+        "development (ankle flexibility drives >75% of dolphin-kick propulsion force "
+        "— prioritize ankle mobility and tibialis/calf strength alongside hip flexor "
+        "work), and the critical balance between dryland training and pool volume. "
+        "You understand taper protocols for competition peaks and how to periodize "
+        "strength work around high-yardage training blocks."
     ),
     "running": (
         "lower limb strength-endurance, injury-resilient posterior chain, plyometric "
@@ -62,10 +64,12 @@ SPORT_DEMANDS = {
     "mma": (
         "strength-to-weight optimization, grip and neck strength, power endurance, "
         "fight-camp periodization, and evidence-based weight management (prioritizing "
-        "gradual longitudinal weight descent over acute dehydration-based cuts to "
-        "preserve strength and power into competition). You understand how to "
-        "peak strength and conditioning for a specific fight date while managing "
-        "sparring load."
+        "gradual longitudinal weight descent over acute dehydration-based cuts; per "
+        "the ISSN (2025) position stand, acute same-week water cuts must not exceed "
+        "~5% of body mass — beyond this threshold, performance impairment and "
+        "cardiovascular risk are consistently documented in the literature). You "
+        "understand how to peak strength and conditioning for a specific fight date "
+        "while managing sparring load."
     ),
     "cycling": (
         "leg strength-endurance, power-to-weight ratio, core stability for aero "
